@@ -54,7 +54,6 @@ func (e *Encoder) encodeList(data []interface{}) ([]byte, error) {
 		tmp, err := e.bencode(val)
 		if err != nil {
 			return nil, err
-
 		}
 		encodedBytes = append(encodedBytes, tmp...)
 	}
@@ -70,14 +69,12 @@ func (e *Encoder) encodeDict(data map[string]interface{}) ([]byte, error) {
 			tmp, err := e.bencode(key)
 			if err != nil {
 				return nil, err
-
 			}
 			encodedBytes = append(encodedBytes, tmp...)
 
 			tmp, err = e.bencode(val)
 			if err != nil {
 				return nil, err
-
 			}
 			encodedBytes = append(encodedBytes, tmp...)
 		}
