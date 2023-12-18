@@ -33,63 +33,60 @@ func parseTorrentFile(filename string) (TorrentFile, error) {
 
 	reader := *bufio.NewReader(file)
 	decodedData, err := bencode.NewDecoder(&reader).Decode()
-
-	url, ok := decodedData.(map[string]interface{})["announce"].(string)
-
-	if !ok {
-		return TorrentFile{}, fmt.Errorf("invalid 'announce' field")
+	if err != nil {
+		return TorrentFile{}, fmt.Errorf("couldn't decode the file: %v", err)
 	}
 
-	info, ok := decodedData.(map[string]interface{})["info"].(map[string]interface{})
+	var announce Announce
+	var info Info
 
-	if !ok {
-		return TorrentFile{}, fmt.Errorf("invalid 'info' field")
-	}
+	switch data := decodedData.(type) {
+	case map[string]interface{}:
+		if announceData, ok := data["announce"]; ok {
+			if url, ok := announceData.(string); ok {
+				announce = Announce(url)
+			} else {
+				return TorrentFile{}, fmt.Errorf("invalid 'announce' field type")
+			}
+		} else {
+			return TorrentFile{}, fmt.Errorf("missing 'announce' field")
+		}
 
-	//info, err := parseInfo(path)
+		if infoData, ok := data["info"].(map[string]interface{}); ok {
+			info = Info{
+				Name:        infoData["name"].(string),
+				Length:      infoData["length"].(int),
+				PieceLength: infoData["piece length"].(int),
+				Pieces:      infoData["pieces"].(string),
+			}
+		} else {
+			return TorrentFile{}, fmt.Errorf("invalid 'info' field")
+		}
 
-	length, ok := info["length"].(int)
-
-	if !ok {
-		return TorrentFile{}, fmt.Errorf("invalid 'length' field'")
-	}
-
-	pieceLength, ok := info["piece length"].(int)
-
-	if !ok {
-		return TorrentFile{}, fmt.Errorf("invalid 'piece length' field'")
-	}
-
-	pieces, ok := info["pieces"].(string)
-
-	if !ok {
-		return TorrentFile{}, fmt.Errorf("invalid 'pieces' field'")
+	default:
+		return TorrentFile{}, fmt.Errorf("invalid format")
 	}
 
 	return TorrentFile{
-		Announce: Announce{url: url},
-		Info: Info{
-			length:      length,
-			pieceLength: pieceLength,
-			pieces:      pieces,
-		},
+		Announce: announce,
+		Info:     info,
 	}, err
 
 }
 
-func parseInfo(path string) (map[string]interface{}, error) {
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't read from the file")
-	}
-	decodedData, _, err := decodeBencode(string(data))
-
-	info, ok := decodedData.(map[string]interface{})["info"].(map[string]interface{})
-
-	if !ok {
-		return nil, fmt.Errorf("invalid 'info' field")
-	}
-
-	return info, err
-}
+//func parseInfo(path string) (map[string]interface{}, error) {
+//
+//	data, err := os.ReadFile(path)
+//	if err != nil {
+//		return nil, fmt.Errorf("couldn't read from the file")
+//	}
+//	decodedData, _, err := decodeBencode(string(data))
+//
+//	info, ok := decodedData.(map[string]interface{})["info"].(map[string]interface{})
+//
+//	if !ok {
+//		return nil, fmt.Errorf("invalid 'info' field")
+//	}
+//
+//	return info, err
+//}

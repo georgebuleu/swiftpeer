@@ -21,6 +21,30 @@ func (d *Decoder) BytesParsed() int {
 	return d.n
 }
 
+func (d *Decoder) Decode() (interface{}, error) {
+
+	return d.bdecode()
+}
+
+func (d *Decoder) bdecode() (interface{}, error) {
+	next, err := d.peek()
+	if err != nil {
+		return nil, err
+	}
+	switch next {
+	case 'i':
+		return d.decodeInteger()
+	case 'l':
+		return d.decodeList()
+	case 'd':
+		return d.decodeDictionary()
+	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		return d.decodeString()
+	default:
+		return nil, fmt.Errorf("unknown token: %q", next)
+	}
+}
+
 func (d *Decoder) decodeInteger() (int, error) {
 	_, err := d.discardByte()
 	if err != nil {
@@ -73,7 +97,7 @@ func (d *Decoder) decodeList() ([]interface{}, error) {
 	next, err := d.peek()
 	for next != 'e' && err == nil {
 
-		elem, err := d.Decode()
+		elem, err := d.bdecode()
 		if err != nil {
 			return nil, err
 		}
@@ -123,7 +147,7 @@ func (d *Decoder) decodeDictionary() (map[string]interface{}, error) {
 			return nil, err
 		}
 
-		val, err := d.Decode()
+		val, err := d.bdecode()
 		if err != nil {
 			return nil, err
 		}
@@ -148,29 +172,27 @@ func (d *Decoder) decodeDictionary() (map[string]interface{}, error) {
 	return result, nil
 }
 
-func (d *Decoder) Decode() (interface{}, error) {
-	next, err := d.peek()
-	if err != nil {
-		return nil, err
-	}
-	switch next {
-	case 'i':
-		return d.decodeInteger()
-	case 'l':
-		return d.decodeList()
-	case 'd':
-		return d.decodeDictionary()
-	case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		return d.decodeString()
-	default:
-		return nil, fmt.Errorf("unknown token: %q", next)
-	}
-}
-
 func (d *Decoder) read(data []byte) (int, error) {
-	n, err := d.r.Read(data)
-	d.n += n
-	return n, err
+	totalRead := 0
+
+	for {
+		n, err := d.r.Read(data)
+		totalRead += n
+
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			d.err = err
+			return totalRead, err
+		}
+
+		if totalRead >= len(data) {
+			break
+		}
+	}
+
+	d.n += totalRead
+	return totalRead, nil
 }
 func (d *Decoder) readByte() (byte, error) {
 	b, err := d.r.ReadByte()
