@@ -161,7 +161,6 @@ func (d *Decoder) decodeDictionary() (map[string]interface{}, error) {
 			return nil, err
 		}
 	}
-
 	if next == 'e' {
 		_, err := d.readByte() // Consume 'e'
 		if err != nil && err != io.EOF {

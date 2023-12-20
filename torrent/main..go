@@ -13,5 +13,7 @@ func main() {
 
 	fmt.Println(file.Announce)
 	fmt.Println(file.Info.Name)
+	fmt.Println(file.Info.Length)
+	fmt.Println(file.Info.PieceLength)
 
 }

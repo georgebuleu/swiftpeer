@@ -16,7 +16,7 @@ type Info struct {
 	Length      int
 	Files       []struct {
 		Length int
-		Path   []string
+		Path   string
 	}
 }
 type TorrentFile struct {
@@ -53,11 +53,40 @@ func parseTorrentFile(filename string) (TorrentFile, error) {
 		}
 
 		if infoData, ok := data["info"].(map[string]interface{}); ok {
-			info = Info{
-				Name:        infoData["name"].(string),
-				Length:      infoData["length"].(int),
-				PieceLength: infoData["piece length"].(int),
-				Pieces:      infoData["pieces"].(string),
+
+			if _, ok := infoData["length"]; ok {
+
+				info = Info{
+					Name:        infoData["name"].(string),
+					Length:      infoData["length"].(int),
+					PieceLength: infoData["piece length"].(int),
+					Pieces:      infoData["pieces"].(string),
+				}
+			} else if filesData, ok := infoData["files"]; ok {
+				var files []struct {
+					Length int
+					Path   string
+				}
+
+				for _, fileData := range filesData.([]interface{}) {
+					fileData := fileData.(map[string]interface{})
+					files = append(files, struct {
+						Length int
+						Path   string
+					}{
+						Length: fileData["length"].(int),
+						Path:   fileData["path"].(string),
+					})
+				}
+
+				info = Info{
+					Name:        infoData["name"].(string),
+					PieceLength: infoData["piece length"].(int),
+					Pieces:      infoData["pieces"].(string),
+					Files:       files,
+				}
+			} else {
+				return TorrentFile{}, fmt.Errorf("missing 'length' or 'files' field")
 			}
 		} else {
 			return TorrentFile{}, fmt.Errorf("invalid 'info' field")
@@ -71,22 +100,4 @@ func parseTorrentFile(filename string) (TorrentFile, error) {
 		Announce: announce,
 		Info:     info,
 	}, err
-
 }
-
-//func parseInfo(path string) (map[string]interface{}, error) {
-//
-//	data, err := os.ReadFile(path)
-//	if err != nil {
-//		return nil, fmt.Errorf("couldn't read from the file")
-//	}
-//	decodedData, _, err := decodeBencode(string(data))
-//
-//	info, ok := decodedData.(map[string]interface{})["info"].(map[string]interface{})
-//
-//	if !ok {
-//		return nil, fmt.Errorf("invalid 'info' field")
-//	}
-//
-//	return info, err
-//}
