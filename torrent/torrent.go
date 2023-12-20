@@ -1,10 +1,10 @@
-package main
+package torrent
 
 import (
 	"bufio"
 	"fmt"
 	"os"
-	"swiftpeer/client/bencode"
+	"swiftpeer/client/torrent/bencode"
 )
 
 type Announce string
@@ -19,22 +19,22 @@ type Info struct {
 		Path   string
 	}
 }
-type TorrentFile struct {
+type File struct {
 	Announce Announce
 	Info     Info
 }
 
-func parseTorrentFile(filename string) (TorrentFile, error) {
+func ParseFile(filename string) (File, error) {
 	file, err := os.Open(filename)
 	if err != nil {
-		return TorrentFile{}, fmt.Errorf("couldn't open the file: %v", err)
+		return File{}, fmt.Errorf("couldn't open the file: %v", err)
 	}
 	defer file.Close()
 
 	reader := *bufio.NewReader(file)
 	decodedData, err := bencode.NewDecoder(&reader).Decode()
 	if err != nil {
-		return TorrentFile{}, fmt.Errorf("couldn't decode the file: %v", err)
+		return File{}, fmt.Errorf("couldn't decode the file: %v", err)
 	}
 
 	var announce Announce
@@ -46,10 +46,10 @@ func parseTorrentFile(filename string) (TorrentFile, error) {
 			if url, ok := announceData.(string); ok {
 				announce = Announce(url)
 			} else {
-				return TorrentFile{}, fmt.Errorf("invalid 'announce' field type")
+				return File{}, fmt.Errorf("invalid 'announce' field type")
 			}
 		} else {
-			return TorrentFile{}, fmt.Errorf("missing 'announce' field")
+			return File{}, fmt.Errorf("missing 'announce' field")
 		}
 
 		if infoData, ok := data["info"].(map[string]interface{}); ok {
@@ -86,17 +86,17 @@ func parseTorrentFile(filename string) (TorrentFile, error) {
 					Files:       files,
 				}
 			} else {
-				return TorrentFile{}, fmt.Errorf("missing 'length' or 'files' field")
+				return File{}, fmt.Errorf("missing 'length' or 'files' field")
 			}
 		} else {
-			return TorrentFile{}, fmt.Errorf("invalid 'info' field")
+			return File{}, fmt.Errorf("invalid 'info' field")
 		}
 
 	default:
-		return TorrentFile{}, fmt.Errorf("invalid format")
+		return File{}, fmt.Errorf("invalid format")
 	}
 
-	return TorrentFile{
+	return File{
 		Announce: announce,
 		Info:     info,
 	}, err
