@@ -15,7 +15,11 @@ func NewEncoder(w io.Writer) *Encoder {
 }
 
 func (e *Encoder) Encode(data interface{}) error {
-	err := NewEncoder(e.w).Encode(&data)
+	encodedData, err := e.bencode(data)
+	if err != nil {
+		return err
+	}
+	_, err = e.w.Write(encodedData)
 	return err
 }
 

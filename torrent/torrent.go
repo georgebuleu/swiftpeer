@@ -24,15 +24,13 @@ type File struct {
 	Info     Info
 }
 
-func ParseFile(filename string) (File, error) {
-	file, err := os.Open(filename)
+func ParseFile(path string) (File, error) {
+	file, err := os.Open(path)
 	if err != nil {
 		return File{}, fmt.Errorf("couldn't open the file: %v", err)
 	}
 	defer file.Close()
-
-	reader := *bufio.NewReader(file)
-	decodedData, err := bencode.NewDecoder(&reader).Decode()
+	decodedData, err := bencode.NewDecoder(bufio.NewReader(file)).Decode()
 	if err != nil {
 		return File{}, fmt.Errorf("couldn't decode the file: %v", err)
 	}
@@ -53,6 +51,12 @@ func ParseFile(filename string) (File, error) {
 		}
 
 		if infoData, ok := data["info"].(map[string]interface{}); ok {
+
+			if _, ok := infoData["length"]; ok {
+				if _, ok := infoData["files"]; ok {
+					return File{}, fmt.Errorf("error: only key length or a key files, but not both or neither")
+				}
+			}
 
 			if _, ok := infoData["length"]; ok {
 
@@ -100,4 +104,64 @@ func ParseFile(filename string) (File, error) {
 		Announce: announce,
 		Info:     info,
 	}, err
+}
+
+func ParseInfo(path string) (info map[string]interface{}, err error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't open the file: %v", err)
+	}
+	defer file.Close()
+
+	decodedData, err := bencode.NewDecoder(bufio.NewReader(file)).Decode()
+	if err != nil {
+		return nil, fmt.Errorf("couldn't decode the file: %v", err)
+	}
+
+	switch data := decodedData.(type) {
+	case map[string]interface{}:
+
+		if infoData, ok := data["info"].(map[string]interface{}); ok {
+
+			if _, ok := infoData["length"]; ok {
+				if _, ok := infoData["files"]; ok {
+					return nil, fmt.Errorf("only key length or a key files, but not both or neither")
+				}
+			}
+
+			if _, ok := infoData["length"]; ok {
+
+				info = map[string]interface{}{
+					"name":         infoData["name"].(string),
+					"length":       infoData["length"].(int),
+					"piece length": infoData["piece length"].(int),
+					"pieces":       infoData["pieces"].(string),
+				}
+			} else if filesData, ok := infoData["files"]; ok {
+				var files []map[string]interface{}
+
+				for _, fileData := range filesData.([]interface{}) {
+					fileData := fileData.(map[string]interface{})
+					files = append(files, map[string]interface{}{
+						"length": fileData["length"].(int),
+						"path":   fileData["path"].(string),
+					})
+				}
+
+				info = map[string]interface{}{
+					"name":         infoData["name"].(string),
+					"piece length": infoData["piece length"].(int),
+					"pieces":       infoData["pieces"].(string),
+					"files":        files,
+				}
+			} else {
+				return nil, fmt.Errorf("missing 'length' or 'files' field")
+			}
+		} else {
+			return nil, fmt.Errorf("invalid 'info' field")
+		}
+	default:
+		return nil, fmt.Errorf("invalid format")
+	}
+	return info, nil
 }

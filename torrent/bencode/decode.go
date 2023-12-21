@@ -22,7 +22,6 @@ func (d *Decoder) BytesParsed() int {
 }
 
 func (d *Decoder) Decode() (interface{}, error) {
-
 	return d.bdecode()
 }
 
