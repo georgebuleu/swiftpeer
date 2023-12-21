@@ -10,18 +10,13 @@ type Encoder struct {
 	w io.Writer
 }
 
-func NewEncoder(w io.Writer) Encoder {
-	return Encoder{w}
+func NewEncoder(w io.Writer) *Encoder {
+	return &Encoder{w}
 }
 
-func (e *Encoder) Encode(data interface{}) (int, error) {
-	encodedData, err := e.bencode(data)
-	if err != nil {
-		return 0, err
-	}
-
-	n, err := e.w.Write(encodedData)
-	return n, err
+func (e *Encoder) Encode(data interface{}) error {
+	err := NewEncoder(e.w).Encode(&data)
+	return err
 }
 
 func (e *Encoder) bencode(data interface{}) ([]byte, error) {

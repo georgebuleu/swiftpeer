@@ -66,7 +66,7 @@ func TestEncoder_Encode(t *testing.T) {
 			wantErr: false,
 		},
 	}
-
+	//TODO: update tests for the encoder
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			e := &Encoder{
