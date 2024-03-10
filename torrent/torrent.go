@@ -2,6 +2,9 @@ package torrent
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"swiftpeer/client/torrent/bencode"
@@ -164,4 +167,27 @@ func ParseInfo(path string) (info map[string]interface{}, err error) {
 		return nil, fmt.Errorf("invalid format")
 	}
 	return info, nil
+}
+
+func bencodeInfo() ([]byte, error) {
+	info, err := ParseInfo(os.Getenv("TORRENT_FILE_PATH"))
+	if err != nil {
+		return nil, err
+	}
+	fmt.Println(info)
+	var encodedInfo bytes.Buffer
+	err = bencode.NewEncoder(&encodedInfo).Encode(info)
+	//fmt.Printf("encoded info: %v", encodedInfo.Bytes())
+	return encodedInfo.Bytes(), err
+
+}
+func HashInfo() ([]byte, error) {
+	encodedInfo, err := bencodeInfo()
+	if err != nil {
+		return nil, err
+	}
+	hashSum := sha1.Sum(encodedInfo)
+	hashedInfo := make([]byte, hex.EncodedLen(len(hashSum)))
+	hex.Encode(hashedInfo, hashSum[:])
+	return hashedInfo, nil
 }
