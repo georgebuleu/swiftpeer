@@ -12,7 +12,8 @@ func main() {
 		fmt.Println(err)
 	}
 
-	fmt.Println(string(hashedInfo))
+	fmt.Println(hashedInfo)
+	fmt.Println(len(hashedInfo))
 	//fmt.Println(info["piece length"])
 
 }
