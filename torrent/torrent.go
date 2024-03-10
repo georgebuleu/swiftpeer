@@ -4,11 +4,12 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"swiftpeer/client/torrent/bencode"
 )
+
+var PATH = os.Getenv("TORRENT_FILE")
 
 type Announce string
 
@@ -27,6 +28,42 @@ type File struct {
 	Info     Info
 }
 
+func splitPieces() ([][20]byte, error) {
+	file, err := ParseFile(PATH)
+	pieces := []byte(file.Info.Pieces)
+	if err != nil {
+		return nil, err
+	}
+	if len(pieces)%sha1.Size != 0 {
+		return nil, fmt.Errorf("invalid pieces length")
+	}
+	numPieces := len(pieces) / sha1.Size
+	hashes := make([][20]byte, numPieces)
+	for i := 0; i < len(pieces); i += 20 {
+		var hash [20]byte
+		copy(hash[:], pieces[i:i+20])
+		hashes[i/20] = hash
+	}
+	return hashes, nil
+}
+
+func HashInfo() ([20]byte, error) {
+	info, err := ParseInfo(PATH)
+
+	if err != nil {
+		return [20]byte{}, err
+	}
+	var buf bytes.Buffer
+	err = bencode.NewEncoder(&buf).Encode(info)
+	if err != nil {
+		return [20]byte{}, err
+	}
+	return sha1.Sum(buf.Bytes()), nil
+}
+
+/*
+used to parse the torrent file and return it as a File type
+*/
 func ParseFile(path string) (File, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -109,6 +146,11 @@ func ParseFile(path string) (File, error) {
 	}, err
 }
 
+/*
+used to parse the info field from the torrent file and return it as a map
+because the encoder and decoder from the bencode package do not support user-defined types
+and this used by the HashInfo function to encode the info field and hash it
+*/
 func ParseInfo(path string) (info map[string]interface{}, err error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -167,27 +209,4 @@ func ParseInfo(path string) (info map[string]interface{}, err error) {
 		return nil, fmt.Errorf("invalid format")
 	}
 	return info, nil
-}
-
-func bencodeInfo() ([]byte, error) {
-	info, err := ParseInfo(os.Getenv("TORRENT_FILE_PATH"))
-	if err != nil {
-		return nil, err
-	}
-	fmt.Println(info)
-	var encodedInfo bytes.Buffer
-	err = bencode.NewEncoder(&encodedInfo).Encode(info)
-	//fmt.Printf("encoded info: %v", encodedInfo.Bytes())
-	return encodedInfo.Bytes(), err
-
-}
-func HashInfo() ([]byte, error) {
-	encodedInfo, err := bencodeInfo()
-	if err != nil {
-		return nil, err
-	}
-	hashSum := sha1.Sum(encodedInfo)
-	hashedInfo := make([]byte, hex.EncodedLen(len(hashSum)))
-	hex.Encode(hashedInfo, hashSum[:])
-	return hashedInfo, nil
 }
