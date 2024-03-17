@@ -2,6 +2,8 @@ package bencode
 
 import (
 	"bufio"
+	"bytes"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -82,7 +84,7 @@ func TestDecoder_decodeDictionary(t *testing.T) {
 				t.Errorf("decodeDictionary() error = %v, wantErr %v", err, tc.wantErr)
 				return
 			}
-
+			fmt.Printf("\ngot =\n %v, \nwant =\n %v\n", got, tc.want)
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("decodeDictionary() got = %v, want %v", got, tc.want)
 			}
@@ -307,4 +309,25 @@ func TestDecoder_readBytes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDecoderEncoder(t *testing.T) {
+	testData := "d8:announce35:https://torrent.ubuntu.com/announce13:announce-listll35:https://torrent.ubuntu.com/announceel40:https://ipv6.torrent.ubuntu.com/announceee7:comment29:Ubuntu CD releases.ubuntu.com10:created by13:mktorrent 1.113:creation datei1697466120e4:infod6:lengthi5173995520e4:name32:ubuntu-23.10.1-desktop-amd64.iso12:piece lengthi20e6:pieces20:��hyhgtsgfhtyghnee"
+	r := bufio.NewReader(strings.NewReader(testData))
+	decoder := NewDecoder(r)
+	decoded, err := decoder.Decode()
+	if err != nil {
+		t.Fatalf("Error encoding: %v", err)
+	}
+	got := new(bytes.Buffer)
+	encoder := NewEncoder(got)
+	err = encoder.Encode(decoded)
+	if err != nil {
+		t.Fatalf("Error encoding: %v", err)
+	}
+	fmt.Printf("\ngot = \n%v, \nwant = \n%v", got, testData)
+	if got.String() != testData {
+		t.Errorf("\ngot = \n%v, \nwant = \n%v", got, testData)
+	}
+
 }

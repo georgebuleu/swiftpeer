@@ -3,6 +3,7 @@ package bencode
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 )
 
@@ -63,19 +64,22 @@ func (e *Encoder) encodeList(data []interface{}) ([]byte, error) {
 func (e *Encoder) encodeDict(data map[string]interface{}) ([]byte, error) {
 	encodedBytes := make([]byte, 0)
 	encodedBytes = append(encodedBytes, "d"...)
-	for key, val := range data {
-		{
-			tmp, err := e.bencode(key)
-			if err != nil {
-				return nil, err
-			}
-			encodedBytes = append(encodedBytes, tmp...)
+	keys := make([]string, 0, len(data))
+	for key := range data {
+		keys = append(keys, key)
+	}
 
-			tmp, err = e.bencode(val)
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		{
+			encodedBytes = append(encodedBytes, e.encodeString(key)...)
+
+			encodedVal, err := e.bencode(data[key])
 			if err != nil {
 				return nil, err
 			}
-			encodedBytes = append(encodedBytes, tmp...)
+			encodedBytes = append(encodedBytes, encodedVal...)
 		}
 	}
 	encodedBytes = append(encodedBytes, "e"...)

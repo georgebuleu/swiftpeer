@@ -1,88 +1,13 @@
 package bencode
 
 import (
+	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"reflect"
 	"testing"
 )
-
-func TestEncoder_Encode(t *testing.T) {
-	type fields struct {
-		w io.Writer
-	}
-	type args struct {
-		data interface{}
-	}
-	tests := []struct {
-		name    string
-		fields  fields
-		args    args
-		want    int
-		wantErr bool
-	}{
-		{
-			name: "Encode String",
-			fields: fields{
-				w: &bytes.Buffer{},
-			},
-			args: args{
-				data: "test",
-			},
-			want:    6, // Length of "4:test"
-			wantErr: false,
-		},
-		{
-			name: "Encode Integer",
-			fields: fields{
-				w: &bytes.Buffer{},
-			},
-			args: args{
-				data: 42,
-			},
-			want:    4, // Length of "i42e"
-			wantErr: false,
-		},
-		{
-			name: "Encode List",
-			fields: fields{
-				w: &bytes.Buffer{},
-			},
-			args: args{
-				data: []interface{}{"one", 2, "three"},
-			},
-			want:    17, // Length of "l3:onei2e5:threee"
-			wantErr: false,
-		},
-		{
-			name: "Encode Dictionary",
-			fields: fields{
-				w: &bytes.Buffer{},
-			},
-			args: args{
-				data: map[string]interface{}{"key1": "value1", "key2": 42},
-			},
-			want:    26, // Length of "d4:key14:value14:key2i42ee"
-			wantErr: false,
-		},
-	}
-	//TODO: update tests for the encoder
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			e := &Encoder{
-				w: tt.fields.w,
-			}
-			got, err := e.Encode(tt.args.data)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("Encode() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if got != tt.want {
-				t.Errorf("Encode() got = %v, want %v", got, tt.want)
-			}
-		})
-	}
-}
 
 func TestEncoder_bencode(t *testing.T) {
 	type fields struct {
@@ -142,6 +67,7 @@ func TestEncoder_bencode(t *testing.T) {
 			want:    []byte("d4:key16:value14:key2i42ee"),
 			wantErr: false,
 		},
+
 		// Add more test cases as needed...
 	}
 
@@ -212,6 +138,7 @@ func TestEncoder_encodeDict(t *testing.T) {
 
 				return
 			}
+			fmt.Printf("\ngot =\n %v, \nwant =\n %v\n", got, tt.want)
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("encodeDict() got = %v, want %v\n got string = %v", got, tt.want, string(got))
 			}
@@ -382,30 +309,22 @@ func TestEncoder_encodeString(t *testing.T) {
 	}
 }
 
-func TestNewEncoder(t *testing.T) {
-	tests := []struct {
-		name  string
-		wantW string
-		want  Encoder
-	}{
-		{
-			name:  "New Encoder",
-			wantW: "",
-			want:  Encoder{w: &bytes.Buffer{}},
-		},
-		// Add more test cases as needed...
+func TestEncoderDecoder(t *testing.T) {
+	buf := new(bytes.Buffer)
+
+	encoder := NewEncoder(buf)
+	err := encoder.Encode("hello")
+	if err != nil {
+		t.Fatalf("Error encoding: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			w := &bytes.Buffer{}
-			got := NewEncoder(w)
-			if gotW := w.String(); gotW != tt.wantW {
-				t.Errorf("NewEncoder() gotW = %v, want %v", gotW, tt.wantW)
-			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("NewEncoder() = %v, want %v", got, tt.want)
-			}
-		})
+	decoder := NewDecoder(bufio.NewReader(buf))
+	got, err := decoder.Decode()
+	if err != nil {
+		t.Fatalf("Error decoding: %v", err)
+	}
+
+	if !reflect.DeepEqual(got, "hello") {
+		t.Errorf("got = %v, want %v", got, "hello")
 	}
 }
