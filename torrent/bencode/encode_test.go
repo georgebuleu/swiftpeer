@@ -324,6 +324,8 @@ func TestEncoderDecoder(t *testing.T) {
 		t.Fatalf("Error decoding: %v", err)
 	}
 
+	fmt.Printf("\ngot = \n%v, \nwant \n%v", got, "hello")
+
 	if !reflect.DeepEqual(got, "hello") {
 		t.Errorf("got = %v, want %v", got, "hello")
 	}

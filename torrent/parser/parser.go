@@ -1,4 +1,4 @@
-package torrent
+package parser
 
 import (
 	"bufio"
@@ -6,8 +6,6 @@ import (
 	"os"
 	"swiftpeer/client/torrent/bencode"
 )
-
-var path = os.Getenv("TORRENT_FILE")
 
 type Announce string
 
@@ -21,23 +19,25 @@ type Info struct {
 		Path   string
 	}
 }
-type File struct {
+type Metadata struct {
 	Announce Announce
 	Info     Info
 }
 
+var path = os.Args[1]
+
 /*
-used to parse the torrent file and return it as a File type
+used to parse the torrent file and return it as a Metadata type
 */
-func ParseFile() (File, error) {
+func ParseFile() (Metadata, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return File{}, fmt.Errorf("couldn't open the file: %v", err)
+		return Metadata{}, fmt.Errorf("couldn't open the file: %v", err)
 	}
 	defer file.Close()
 	decodedData, err := bencode.NewDecoder(bufio.NewReader(file)).Decode()
 	if err != nil {
-		return File{}, fmt.Errorf("couldn't decode the file: %v", err)
+		return Metadata{}, fmt.Errorf("couldn't decode the file: %v", err)
 	}
 
 	var announce Announce
@@ -49,17 +49,17 @@ func ParseFile() (File, error) {
 			if url, ok := announceData.(string); ok {
 				announce = Announce(url)
 			} else {
-				return File{}, fmt.Errorf("invalid 'announce' field type")
+				return Metadata{}, fmt.Errorf("invalid 'announce' field type")
 			}
 		} else {
-			return File{}, fmt.Errorf("missing 'announce' field")
+			return Metadata{}, fmt.Errorf("missing 'announce' field")
 		}
 
 		if infoData, ok := data["info"].(map[string]interface{}); ok {
 
 			if _, ok := infoData["length"]; ok {
 				if _, ok := infoData["files"]; ok {
-					return File{}, fmt.Errorf("error: only key length or a key files, but not both or neither")
+					return Metadata{}, fmt.Errorf("error: only key length or a key files, but not both or neither")
 				}
 			}
 
@@ -95,17 +95,17 @@ func ParseFile() (File, error) {
 					Files:       files,
 				}
 			} else {
-				return File{}, fmt.Errorf("missing 'length' or 'files' field")
+				return Metadata{}, fmt.Errorf("missing 'length' or 'files' field")
 			}
 		} else {
-			return File{}, fmt.Errorf("invalid 'info' field")
+			return Metadata{}, fmt.Errorf("invalid 'info' field")
 		}
 
 	default:
-		return File{}, fmt.Errorf("invalid format")
+		return Metadata{}, fmt.Errorf("invalid format")
 	}
 
-	return File{
+	return Metadata{
 		Announce: announce,
 		Info:     info,
 	}, err
@@ -142,8 +142,8 @@ func ParseInfo() (info map[string]interface{}, err error) {
 			if _, ok := infoData["length"]; ok {
 
 				info = map[string]interface{}{
-					"name":         infoData["name"].(string),
 					"length":       infoData["length"].(int),
+					"name":         infoData["name"].(string),
 					"piece length": infoData["piece length"].(int),
 					"pieces":       infoData["pieces"].(string),
 				}
@@ -159,10 +159,10 @@ func ParseInfo() (info map[string]interface{}, err error) {
 				}
 
 				info = map[string]interface{}{
+					"files":        files,
 					"name":         infoData["name"].(string),
 					"piece length": infoData["piece length"].(int),
 					"pieces":       infoData["pieces"].(string),
-					"files":        files,
 				}
 			} else {
 				return nil, fmt.Errorf("missing 'length' or 'files' field")

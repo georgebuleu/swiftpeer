@@ -5,13 +5,14 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"swiftpeer/client/torrent/bencode"
+	"swiftpeer/client/torrent/parser"
 )
 
 const HashLen = sha1.Size
 
 // Torrent TODO: add support for multiple files
 type Torrent struct {
-	Announce    Announce
+	Announce    parser.Announce
 	Name        string
 	PieceLength int
 	InfoHash    [HashLen]byte
@@ -24,7 +25,7 @@ type Torrent struct {
 }
 
 func splitPieces() ([][HashLen]byte, error) {
-	file, err := ParseFile()
+	file, err := parser.ParseFile()
 	pieces := []byte(file.Info.Pieces)
 	if err != nil {
 		return nil, err
@@ -40,40 +41,45 @@ func splitPieces() ([][HashLen]byte, error) {
 		hashes[i/20] = hash
 	}
 	return hashes, nil
+
 }
 
 func hashInfo() ([HashLen]byte, error) {
-	info, err := ParseInfo()
+	info, err := parser.ParseInfo()
+	//fmt.Println(info)
 
 	if err != nil {
 		return [HashLen]byte{}, err
 	}
 	var buf bytes.Buffer
 	err = bencode.NewEncoder(&buf).Encode(info)
+	//fmt.Printf("\ninfo: %s\n", buf.String())
 	if err != nil {
 		return [HashLen]byte{}, err
 	}
+
+	//fmt.Printf("\nhash: %v", hex.EncodeToString(sum[:]))
+
 	return sha1.Sum(buf.Bytes()), nil
 }
 
-func toTorrent(f File) (Torrent, error) {
+func toTorrent(m parser.Metadata) (Torrent, error) {
 	infoHash, err := hashInfo()
 	if err != nil {
 		return Torrent{}, err
 	}
-
 	pieceHashes, err := splitPieces()
 	if err != nil {
 		return Torrent{}, err
 	}
 
 	return Torrent{
-		Announce:    f.Announce,
-		Name:        f.Info.Name,
-		PieceLength: f.Info.PieceLength,
+		Announce:    m.Announce,
+		Name:        m.Info.Name,
+		PieceLength: m.Info.PieceLength,
 		InfoHash:    infoHash,
 		PieceHashes: pieceHashes,
-		Length:      f.Info.Length,
-		Files:       f.Info.Files,
+		Length:      m.Info.Length,
+		Files:       m.Info.Files,
 	}, nil
 }

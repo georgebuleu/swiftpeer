@@ -14,7 +14,7 @@ type Decoder struct {
 }
 
 func NewDecoder(r *bufio.Reader) *Decoder {
-	return &Decoder{r: bufio.NewReader(r)}
+	return &Decoder{r: r}
 }
 
 func (d *Decoder) BytesParsed() int {
@@ -130,17 +130,22 @@ func (d *Decoder) decodeDictionary() (map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	next, err := d.peek()
 
-	for next != 'e' && err == nil {
-
-		nxtStr, err := d.peek()
+	reader := bufio.NewReader(d.r)
+	for {
+		next, err := reader.Peek(1)
 		if err != nil {
+			if err == io.EOF {
+				break
+			}
 			return nil, err
 		}
-		if !d.isValidKey(nxtStr) {
-			return nil, fmt.Errorf("keys can be only encoded as string %v", nxtStr)
+
+		if next[0] == 'e' {
+			_, _ = reader.ReadByte() // Consume 'e'
+			break
 		}
+
 		key, err := d.decodeString()
 		if err != nil {
 			return nil, err
@@ -152,19 +157,6 @@ func (d *Decoder) decodeDictionary() (map[string]interface{}, error) {
 		}
 
 		result[key] = val
-		next, err = d.peek()
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return nil, err
-		}
-	}
-	if next == 'e' {
-		_, err := d.readByte() // Consume 'e'
-		if err != nil && err != io.EOF {
-			return nil, err
-		}
 	}
 
 	return result, nil
@@ -174,14 +166,18 @@ func (d *Decoder) read(data []byte) (int, error) {
 	totalRead := 0
 
 	for {
-		n, err := d.r.Read(data)
+		n, err := d.r.Read(data[totalRead:])
 		totalRead += n
 
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			d.err = err
-			return totalRead, err
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			if n == 0 {
+				//return the error if no bytes were read
+				d.err = err
+				return totalRead, err
+			}
 		}
 
 		if totalRead >= len(data) {

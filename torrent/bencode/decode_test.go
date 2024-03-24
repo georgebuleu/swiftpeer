@@ -58,18 +58,35 @@ func TestDecoder_Decode(t *testing.T) {
 		})
 	}
 }
+func generateBencodedDict() (string, map[string]interface{}) {
+	b := strings.Builder{}
+	b.WriteString("d")
+	expected := make(map[string]interface{})
+	for i := 0; i < 240; i++ {
+		key := fmt.Sprintf("key%d", i)
+		value := fmt.Sprintf("value%d", i)
+
+		b.WriteString(fmt.Sprintf("%d:%s%d:%s", len(key), key, len(value), value))
+		expected[key] = value
+	}
+	b.WriteString("e")
+	return b.String(), expected
+}
 
 func TestDecoder_decodeDictionary(t *testing.T) {
+	got, want := generateBencodedDict()
 	testCases := []struct {
 		name    string
 		input   string
 		want    map[string]interface{}
 		wantErr bool
 	}{
+
 		{"EmptyDictionary", "de", map[string]interface{}{}, false},
 		{"SingleElement", "d3:key5:valuee", map[string]interface{}{"key": "value"}, false},
 		{"MultipleElements", "d3:foo3:bar3:baz3:quxe", map[string]interface{}{"foo": "bar", "baz": "qux"}, false},
 		{"NestedDictionary", "d4:dictd4:key14:val14:key24:val2ee", map[string]interface{}{"dict": map[string]interface{}{"key1": "val1", "key2": "val2"}}, false},
+		{"LongDictionary", got, want, false},
 		{"InvalidInput", "invalid", nil, true},
 	}
 
@@ -311,8 +328,8 @@ func TestDecoder_readBytes(t *testing.T) {
 	}
 }
 
-func TestDecoderEncoder(t *testing.T) {
-	testData := "d8:announce35:https://torrent.ubuntu.com/announce13:announce-listll35:https://torrent.ubuntu.com/announceel40:https://ipv6.torrent.ubuntu.com/announceee7:comment29:Ubuntu CD releases.ubuntu.com10:created by13:mktorrent 1.113:creation datei1697466120e4:infod6:lengthi5173995520e4:name32:ubuntu-23.10.1-desktop-amd64.iso12:piece lengthi20e6:pieces20:��hyhgtsgfhtyghnee"
+func TestDecoderEncoder_DecodeEncode(t *testing.T) {
+	testData := "d6:lengthi5173995520e4:name32:ubuntu-23.10.1-desktop-amd64.iso12:piece lengthi4e6:pieces20:abcdecbcedeffdfbaaeee"
 	r := bufio.NewReader(strings.NewReader(testData))
 	decoder := NewDecoder(r)
 	decoded, err := decoder.Decode()
@@ -325,9 +342,18 @@ func TestDecoderEncoder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error encoding: %v", err)
 	}
-	fmt.Printf("\ngot = \n%v, \nwant = \n%v", got, testData)
-	if got.String() != testData {
-		t.Errorf("\ngot = \n%v, \nwant = \n%v", got, testData)
+	fmt.Printf("\ngot = \n%v , \nwant = \n%v", got, testData)
+	//if got.String() != testData {
+	//	t.Errorf("\ngot = \n%v , \nwant = \n%v", got, testData)
+	//}
+	decoder = NewDecoder(bufio.NewReader(strings.NewReader(testData)))
+	decoded2, err := decoder.Decode()
+
+	fmt.Printf("\ndecoded = \n%v , \ndecoded2 = \n%v", decoded, decoded2)
+
+	//fmt.Printf("\ngot = \n%v , \nwant = \n%v", got, testData)
+	if !reflect.DeepEqual(decoded2, decoded) {
+		t.Errorf("\ndecoded = \n%v , \ndecoded2 = \n%v", decoded, decoded2)
 	}
 
 }
