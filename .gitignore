@@ -19,3 +19,7 @@
 
 # Go workspace file
 go.work
+/testdata/big-buck-bunny.torrent
+/testdata/debian-12.5.0-amd64-netinst.iso.torrent
+/testdata/sample.torrent
+/testdata/ubuntu-23.10.1-desktop-amd64.iso.torrent

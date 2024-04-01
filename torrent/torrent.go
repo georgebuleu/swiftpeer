@@ -12,7 +12,7 @@ const HashLen = sha1.Size
 
 // Torrent TODO: add support for multiple files
 type Torrent struct {
-	Announce    parser.Announce
+	Announce    string
 	Name        string
 	PieceLength int
 	InfoHash    [HashLen]byte
@@ -25,8 +25,11 @@ type Torrent struct {
 }
 
 func splitPieces() ([][HashLen]byte, error) {
-	file, err := parser.ParseFile()
-	pieces := []byte(file.Info.Pieces)
+	metadata, err := parser.ParseMetadata()
+	if err != nil {
+		return nil, err
+	}
+	pieces := []byte(metadata.Pieces)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +48,11 @@ func splitPieces() ([][HashLen]byte, error) {
 }
 
 func hashInfo() ([HashLen]byte, error) {
-	info, err := parser.ParseInfo()
+	metadata, err := parser.ParseMetadata()
+	if err != nil {
+		return [HashLen]byte{}, err
+	}
+	info := parser.GetInfoDictionary(metadata)
 	//fmt.Println(info)
 
 	if err != nil {
@@ -75,11 +82,11 @@ func toTorrent(m parser.Metadata) (Torrent, error) {
 
 	return Torrent{
 		Announce:    m.Announce,
-		Name:        m.Info.Name,
-		PieceLength: m.Info.PieceLength,
+		Name:        m.Name,
+		PieceLength: m.PieceLength,
 		InfoHash:    infoHash,
 		PieceHashes: pieceHashes,
-		Length:      m.Info.Length,
-		Files:       m.Info.Files,
+		Length:      m.Length,
+		Files:       m.Files,
 	}, nil
 }
