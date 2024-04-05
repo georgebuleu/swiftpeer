@@ -20,22 +20,6 @@ type Metadata struct {
 	}
 }
 
-type TrackerResponse struct {
-	FailureReason  string
-	WarningMessage string
-	Interval       int
-	MinInterval    int
-	TrackerID      string
-	Complete       int
-	Incomplete     int
-	Peers          []Peer
-}
-
-type Peer struct {
-	IP   string
-	Port int
-}
-
 var path = os.Args[1]
 
 func readFile() (io.Reader, error) {
