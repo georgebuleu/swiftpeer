@@ -3,8 +3,6 @@ package torrent
 import (
 	"fmt"
 	"io"
-	"net"
-	"sync"
 )
 
 //type Handshake struct {
@@ -34,7 +32,7 @@ func NewHandshake(peerId, infoHash [20]byte) *Handshake {
 	}
 }
 
-func (h *Handshake) serialize() []byte {
+func (h *Handshake) Serialize() []byte {
 
 	buff := make([]byte, handshakeLen)
 	buff[0] = byte(len(pstr))
@@ -46,7 +44,7 @@ func (h *Handshake) serialize() []byte {
 	return buff
 }
 
-func (h *Handshake) deserialize(r io.Reader) (*Handshake, error) {
+func (h *Handshake) Deserialize(r io.Reader) (*Handshake, error) {
 	headerByte := make([]byte, 1)
 	_, err := io.ReadFull(r, headerByte)
 	if err != nil {
@@ -64,6 +62,16 @@ func (h *Handshake) deserialize(r io.Reader) (*Handshake, error) {
 		return nil, fmt.Errorf("failed to read handshake body: %v\", err")
 	}
 
+	//reserved := bodyBuff[pstrLen : pstrLen+8]
+	var infoHash, peerId [20]byte
+	copy(infoHash[:], bodyBuff[pstrLen+8:pstrLen+28])
+	copy(peerId[:], bodyBuff[pstrLen+28:])
+
+	return &Handshake{
+		Pstr:     string(bodyBuff[0:pstrLen]),
+		InfoHash: infoHash,
+		PeerId:   peerId,
+	}, nil
 }
 
 func GetPeerIdAsBytes(peerId string) []byte {
