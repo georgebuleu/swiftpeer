@@ -23,12 +23,13 @@ type TrackerResponse struct {
 }
 
 type Peer struct {
-	IP   string
-	Port int
+	IP     string
+	Port   int
+	PeerId string
 }
 
 // ip and event are optional, but that might change
-func constructURL(peerID [20]byte, port int) (string, error) {
+func constructURL(port int) (string, error) {
 	m, err := parser.ParseMetadata()
 	if err != nil {
 		return "", err
@@ -45,7 +46,7 @@ func constructURL(peerID [20]byte, port int) (string, error) {
 
 	params := url.Values{
 		"info_hash":  []string{string(t.InfoHash[:])},
-		"peer_id":    []string{string(peerID[:])},
+		"peer_id":    []string{ClientId[:]},
 		"port":       []string{fmt.Sprintf("%d", port)},
 		"uploaded":   []string{"0"},
 		"downloaded": []string{"0"},
@@ -56,8 +57,8 @@ func constructURL(peerID [20]byte, port int) (string, error) {
 	return domain.String(), nil
 }
 
-func AnnounceTracker(peerID [20]byte, port int) (string, error) {
-	u, err := constructURL(peerID, port)
+func AnnounceTracker(port int) (string, error) {
+	u, err := constructURL(port)
 	if err != nil {
 		return u, err
 	}
@@ -78,30 +79,31 @@ func AnnounceTracker(peerID [20]byte, port int) (string, error) {
 
 // TO DO: peer id not consumed
 func ParseTrackerResponse() (TrackerResponse, error) {
-	response, err := AnnounceTracker([20]byte([]byte("abcdefghijabcdefghij")), 6889)
+	response, err := AnnounceTracker(6889)
 	if err != nil {
 		return TrackerResponse{}, err
 	}
-
-	decoded_response, err := bencode.NewDecoder(bufio.NewReader(strings.NewReader(response))).Decode()
+	fmt.Println(response)
+	decodedResponse, err := bencode.NewDecoder(bufio.NewReader(strings.NewReader(response))).Decode()
 	if err != nil {
 		return TrackerResponse{}, err
 	}
 
 	var trackerResponse TrackerResponse
 
-	switch data := decoded_response.(type) {
+	switch data := decodedResponse.(type) {
 	case map[string]interface{}:
+		//complete is optional
 		if complete, ok := data["complete"].(int); ok {
 			trackerResponse.Complete = complete
 		} else {
-			return TrackerResponse{}, fmt.Errorf("invalid complete field")
+			trackerResponse.Complete = 0
 		}
-
+		//incomplete is optional
 		if incomplete, ok := data["incomplete"].(int); ok {
 			trackerResponse.Incomplete = incomplete
 		} else {
-			return TrackerResponse{}, fmt.Errorf("invalid incomplete field")
+			trackerResponse.Incomplete = 0
 		}
 		if interval, ok := data["interval"].(int); ok {
 			trackerResponse.Interval = interval
@@ -111,10 +113,20 @@ func ParseTrackerResponse() (TrackerResponse, error) {
 		if peersList, ok := data["peers"].([]interface{}); ok {
 			var peers []Peer
 			for _, peer := range peersList {
-				peers = append(peers, Peer{
-					IP:   peer.(map[string]any)["ip"].(string),
-					Port: peer.(map[string]any)["port"].(int),
-				})
+				if _, ok := peer.(map[string]any)["peer_id"].(string); !ok {
+					peers = append(peers, Peer{
+						IP:     peer.(map[string]any)["ip"].(string),
+						Port:   peer.(map[string]any)["port"].(int),
+						PeerId: "",
+					})
+				} else {
+					peers = append(peers, Peer{
+						IP:     peer.(map[string]any)["ip"].(string),
+						Port:   peer.(map[string]any)["port"].(int),
+						PeerId: peer.(map[string]any)["peer_id"].(string),
+					})
+				}
+
 			}
 			trackerResponse.Peers = peers
 		} else {
