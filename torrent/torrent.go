@@ -47,7 +47,7 @@ func splitPieces() ([][HashLen]byte, error) {
 
 }
 
-func hashInfo() ([HashLen]byte, error) {
+func HashInfo() ([HashLen]byte, error) {
 	metadata, err := parser.ParseMetadata()
 	if err != nil {
 		return [HashLen]byte{}, err
@@ -71,7 +71,7 @@ func hashInfo() ([HashLen]byte, error) {
 }
 
 func toTorrent(m parser.Metadata) (Torrent, error) {
-	infoHash, err := hashInfo()
+	infoHash, err := HashInfo()
 	if err != nil {
 		return Torrent{}, err
 	}
