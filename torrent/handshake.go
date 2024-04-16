@@ -15,7 +15,7 @@ import (
 const (
 	pstr         = "BitTorrent protocol"
 	ClientId     = "-SP1011-IJLasf24lqrI"
-	handshakeLen = 49 + len(pstr)
+	handshakeLen = 49 + len(pstr) // hash_info + peer_id + 1(header byte for the length)
 )
 
 type Handshake struct {
@@ -56,7 +56,7 @@ func (h *Handshake) Deserialize(r io.Reader) (*Handshake, error) {
 		return nil, fmt.Errorf("invalid header: handshake length cannot be zero")
 	}
 
-	bodyBuff := make([]byte, pstrLen)
+	bodyBuff := make([]byte, pstrLen+48) //handshake size (in bytes) - 1 byte from the header, already consumed
 	_, err = io.ReadFull(r, bodyBuff)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read handshake body: %v\", err")
