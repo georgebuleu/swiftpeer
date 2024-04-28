@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"swiftpeer/client/conn"
+	"swiftpeer/client/peerconn"
 	"swiftpeer/client/tracker"
 	"sync"
 )
@@ -17,6 +17,6 @@ func main() {
 	}
 	fmt.Println()
 	//torrent.HandlePeersSeq(res.Peers)
-	conn.HandlePeers(res.Peers, &wg)
+	peerconn.HandlePeers(res.Peers, &wg)
 	wg.Wait()
 }

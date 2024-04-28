@@ -66,9 +66,3 @@ func (h *Handshake) Deserialize(r io.Reader) (*Handshake, error) {
 		PeerId:   peerId,
 	}, nil
 }
-
-func GetPeerIdAsBytes(peerId string) []byte {
-	id := make([]byte, 20)
-	_ = copy(id, peerId[:])
-	return id
-}
