@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
-	"swiftpeer/client/torrent/bencode"
-	"swiftpeer/client/torrent/parser"
+	"swiftpeer/client/bencode"
+	"swiftpeer/client/parser"
 )
 
 const HashLen = sha1.Size
@@ -70,7 +70,7 @@ func HashInfo() ([HashLen]byte, error) {
 	return sha1.Sum(buf.Bytes()), nil
 }
 
-func toTorrent(m parser.Metadata) (Torrent, error) {
+func ToTorrent(m parser.Metadata) (Torrent, error) {
 	infoHash, err := HashInfo()
 	if err != nil {
 		return Torrent{}, err

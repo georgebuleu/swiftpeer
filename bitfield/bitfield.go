@@ -1,4 +1,4 @@
-package torrent
+package bitfield
 
 type Bitfield []byte
 

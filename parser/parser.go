@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"swiftpeer/client/torrent/bencode"
+	"swiftpeer/client/bencode"
 )
 
 type Metadata struct {

@@ -1,4 +1,4 @@
-package torrent
+package tracker
 
 import (
 	"bufio"
@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"swiftpeer/client/torrent/bencode"
-	"swiftpeer/client/torrent/parser"
+	"swiftpeer/client/bencode"
+	"swiftpeer/client/handshake"
+	"swiftpeer/client/parser"
+	"swiftpeer/client/torrent"
 )
 
 type TrackerResponse struct {
@@ -39,14 +41,14 @@ func constructURL(port int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	t, err := toTorrent(m)
+	t, err := torrent.ToTorrent(m)
 	if err != nil {
 		return "", err
 	}
 
 	params := url.Values{
 		"info_hash":  []string{string(t.InfoHash[:])},
-		"peer_id":    []string{ClientId[:]},
+		"peer_id":    []string{handshake.ClientId[:]},
 		"port":       []string{fmt.Sprintf("%d", port)},
 		"uploaded":   []string{"0"},
 		"downloaded": []string{"0"},

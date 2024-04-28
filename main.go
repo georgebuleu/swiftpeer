@@ -2,16 +2,21 @@ package main
 
 import (
 	"fmt"
-	"swiftpeer/client/torrent"
+	"swiftpeer/client/conn"
+	"swiftpeer/client/tracker"
+	"sync"
 )
 
 const Port int = 6889
 
 func main() {
-	//peerID := [20]byte{'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'}
-	res, err := torrent.ParseTrackerResponse()
+	var wg sync.WaitGroup
+	res, err := tracker.ParseTrackerResponse()
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Println(res)
+	fmt.Println()
+	//torrent.HandlePeersSeq(res.Peers)
+	conn.HandlePeers(res.Peers, &wg)
+	wg.Wait()
 }

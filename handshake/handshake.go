@@ -1,4 +1,4 @@
-package torrent
+package handshake
 
 import (
 	"fmt"

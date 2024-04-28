@@ -1,23 +1,26 @@
-package torrent
+package conn
 
 import (
 	"fmt"
 	"io"
 	"net"
+	"swiftpeer/client/handshake"
+	"swiftpeer/client/torrent"
+	"swiftpeer/client/tracker"
 	"sync"
 	"time"
 )
 
 type PeerConn struct {
 	conn     net.Conn
-	peer     Peer
+	peer     tracker.Peer
 	peerId   [20]byte
 	infoHash [20]byte
 	isChoked bool
 }
 
 func InitHandshake(conn net.Conn, infoHash [20]byte, peerId [20]byte) {
-	hs := NewHandshake(peerId, infoHash)
+	hs := handshake.NewHandshake(peerId, infoHash)
 	_, err := conn.Write(hs.Serialize())
 	if err != nil {
 		fmt.Printf("Failed to send handshake with %v : %v", conn.RemoteAddr(), err)
@@ -46,17 +49,17 @@ func ClientIdToByteArray(id string) [20]byte {
 	return clientId
 }
 
-func HandlePeers(peers []Peer, wg *sync.WaitGroup) {
+func HandlePeers(peers []tracker.Peer, wg *sync.WaitGroup) {
 	for _, peer := range peers {
 		wg.Add(1)
-		go func(p Peer) {
+		go func(p tracker.Peer) {
 			bindToPeer(p)
 			wg.Done()
 		}(peer)
 	}
 }
 
-func bindToPeer(peer Peer) {
+func bindToPeer(peer tracker.Peer) {
 	ip := net.ParseIP(peer.IP)
 	if ip == nil {
 		fmt.Printf("invalid IP address: %s", peer.IP)
@@ -68,7 +71,7 @@ func bindToPeer(peer Peer) {
 	} else {
 		address = fmt.Sprintf("[%v]:%v", peer.IP, peer.Port)
 	}
-	hash, _ := HashInfo()
+	hash, _ := torrent.HashInfo()
 	conn, err := net.DialTimeout("tcp", address, time.Duration(time.Second*10))
 
 	if err != nil {
@@ -78,6 +81,6 @@ func bindToPeer(peer Peer) {
 		fmt.Printf("Successfully connected to  %v\n", address)
 	}
 
-	InitHandshake(conn, hash, ClientIdToByteArray(ClientId))
+	InitHandshake(conn, hash, ClientIdToByteArray(handshake.ClientId))
 
 }
