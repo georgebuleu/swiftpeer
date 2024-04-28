@@ -5,13 +5,6 @@ import (
 	"io"
 )
 
-//type Handshake struct {
-//	Pstr      string
-//	HashInfo [20]byte
-//	Reserved  byte
-//	Client_Id   [20]byte
-//}
-
 const (
 	pstr         = "BitTorrent protocol"
 	ClientId     = "-SP1011-IJLasf24lqrI"
