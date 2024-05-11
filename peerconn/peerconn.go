@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"swiftpeer/client/bitfield"
 	"swiftpeer/client/handshake"
+	"swiftpeer/client/message"
 	"swiftpeer/client/torrent"
 	"swiftpeer/client/tracker"
 	"swiftpeer/client/utils"
@@ -17,6 +19,7 @@ type PeerConn struct {
 	peer     tracker.Peer
 	infoHash [20]byte
 	isChoked bool
+	pieces   bitfield.Bitfield
 }
 
 func (pc *PeerConn) initHandshake() error {
@@ -38,7 +41,6 @@ func (pc *PeerConn) initHandshake() error {
 		return fmt.Errorf("different info_hash during handshake")
 	}
 
-	fmt.Printf("Read bytes :%v\n", answer.InfoHash)
 	return nil
 }
 
@@ -61,7 +63,7 @@ func NewPeerConn(peer tracker.Peer) (*PeerConn, error) {
 		return nil, err
 	}
 	hash, _ := torrent.HashInfo()
-	conn, err := net.DialTimeout("tcp", address, time.Duration(time.Second*20))
+	conn, err := net.DialTimeout("tcp", address, time.Second*20)
 
 	if err != nil {
 
@@ -73,6 +75,7 @@ func NewPeerConn(peer tracker.Peer) (*PeerConn, error) {
 		peer:     peer,
 		infoHash: hash,
 		isChoked: true,
+		pieces:   bitfield.Bitfield{},
 	}
 
 	err = pc.initHandshake()
@@ -80,5 +83,11 @@ func NewPeerConn(peer tracker.Peer) (*PeerConn, error) {
 		conn.Close()
 		return nil, err
 	}
+	msg := message.Read(io.Reader(conn))
+	fmt.Printf("First Message: %v: %v\n", msg.GetMessageName(), msg.Payload)
+	if msg.Id == message.BitfieldMsg {
+		pc.pieces = msg.Payload
+	}
+
 	return pc, nil
 }

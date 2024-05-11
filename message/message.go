@@ -48,7 +48,7 @@ func (m *Message) Serialize() []byte {
 // length prefix is a four byte big-endian value
 // message ID is a single decimal byte
 // payload is message dependent.
-func Deserialize(r io.Reader) *Message {
+func Read(r io.Reader) *Message {
 	lengthBuff := make([]byte, 4)
 	_, err := io.ReadFull(r, lengthBuff)
 	if err != nil {
@@ -74,4 +74,35 @@ func (m *Message) KeepAliveMsg() []byte {
 	msg := make([]byte, 4)
 	binary.BigEndian.PutUint32(msg, 0)
 	return msg
+}
+
+func (m *Message) GetMessageName() string {
+	switch m.Id {
+	case ChokeMsg:
+		return "ChokeMsg"
+	case UnchokeMsg:
+		return "UnchokeMsg"
+	case InterestedMsg:
+		return "InterestedMsg"
+	case NotInterestedMsg:
+		return "NotInterestedMsg"
+	case HaveMsg:
+		return "HaveMsg"
+	case BitfieldMsg:
+		return "BitfieldMsg"
+	case RequestMsg:
+		return "RequestMsg"
+	case PieceMsg:
+		return "PieceMsg"
+	case CancelMsg:
+		return "CancelMsg"
+	case PortMsg:
+		return "PortMsg"
+	default:
+		return "UnknownMsg"
+	}
+}
+
+func (m *Message) onBitfieldMsg() {
+
 }
