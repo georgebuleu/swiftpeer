@@ -5,7 +5,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 	"swiftpeer/client/bencode"
-	"swiftpeer/client/parser"
+	"swiftpeer/client/torrent/metadata"
 )
 
 const HashLen = sha1.Size
@@ -24,15 +24,53 @@ type Torrent struct {
 	}
 }
 
-func splitPieces() ([][HashLen]byte, error) {
-	metadata, err := parser.ParseMetadata()
-	if err != nil {
-		return nil, err
+func NewTorrent() *Torrent {
+	m := metadata.NewMetadata()
+	if m == nil {
+		fmt.Printf("torrent: Failed to load metadata\n")
+		return nil
 	}
-	pieces := []byte(metadata.Pieces)
+
+	infoHash, err := hashInfo(m)
 	if err != nil {
-		return nil, err
+		fmt.Printf("torrent: %v", err)
+		return nil
 	}
+	pieceHashes, err := splitPieces(m)
+	if err != nil {
+		fmt.Printf("torrent: %v", err)
+		return nil
+	}
+
+	return &Torrent{
+		Announce:    m.Announce,
+		Name:        m.Name,
+		PieceLength: m.PieceLength,
+		InfoHash:    infoHash,
+		PieceHashes: pieceHashes,
+		Length:      m.Length,
+		Files:       m.Files,
+	}
+}
+
+// hashes the info dict
+func hashInfo(m *metadata.Metadata) ([HashLen]byte, error) {
+	info := m.InfoDict()
+	var buf bytes.Buffer
+	err := bencode.NewEncoder(&buf).Encode(info)
+	//fmt.Printf("\ninfo: %s\n", buf.String())
+	if err != nil {
+		return [HashLen]byte{}, err
+	}
+
+	//fmt.Printf("\nhash: %v", hex.EncodeToString(sum[:]))
+
+	return sha1.Sum(buf.Bytes()), nil
+}
+
+func splitPieces(m *metadata.Metadata) ([][HashLen]byte, error) {
+	pieces := []byte(m.Pieces)
+
 	if len(pieces)%sha1.Size != 0 {
 		return nil, fmt.Errorf("invalid pieces length")
 	}
@@ -44,49 +82,4 @@ func splitPieces() ([][HashLen]byte, error) {
 		hashes[i/20] = hash
 	}
 	return hashes, nil
-
-}
-
-func HashInfo() ([HashLen]byte, error) {
-	metadata, err := parser.ParseMetadata()
-	if err != nil {
-		return [HashLen]byte{}, err
-	}
-	info := parser.GetInfoDictionary(metadata)
-	//fmt.Println(info)
-
-	if err != nil {
-		return [HashLen]byte{}, err
-	}
-	var buf bytes.Buffer
-	err = bencode.NewEncoder(&buf).Encode(info)
-	//fmt.Printf("\ninfo: %s\n", buf.String())
-	if err != nil {
-		return [HashLen]byte{}, err
-	}
-
-	//fmt.Printf("\nhash: %v", hex.EncodeToString(sum[:]))
-
-	return sha1.Sum(buf.Bytes()), nil
-}
-
-func ToTorrent(m parser.Metadata) (Torrent, error) {
-	infoHash, err := HashInfo()
-	if err != nil {
-		return Torrent{}, err
-	}
-	pieceHashes, err := splitPieces()
-	if err != nil {
-		return Torrent{}, err
-	}
-
-	return Torrent{
-		Announce:    m.Announce,
-		Name:        m.Name,
-		PieceLength: m.PieceLength,
-		InfoHash:    infoHash,
-		PieceHashes: pieceHashes,
-		Length:      m.Length,
-		Files:       m.Files,
-	}, nil
 }

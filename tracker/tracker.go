@@ -10,7 +10,6 @@ import (
 	"strings"
 	"swiftpeer/client/bencode"
 	"swiftpeer/client/handshake"
-	"swiftpeer/client/parser"
 	"swiftpeer/client/torrent"
 )
 
@@ -49,16 +48,11 @@ func (p Peer) FormatAddress() (string, error) {
 
 // ip and event are optional, but that might change
 func constructURL(port int) (string, error) {
-	m, err := parser.ParseMetadata()
-	if err != nil {
-		return "", err
-
+	t := torrent.NewTorrent()
+	if t == nil {
+		return "", fmt.Errorf("Tracker: failed to create a new torrent")
 	}
-	domain, err := url.Parse(m.Announce)
-	if err != nil {
-		return "", err
-	}
-	t, err := torrent.ToTorrent(m)
+	domain, err := url.Parse(t.Announce)
 	if err != nil {
 		return "", err
 	}
