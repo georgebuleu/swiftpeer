@@ -48,12 +48,12 @@ func (m *Message) Serialize() []byte {
 // length prefix is a four byte big-endian value
 // message ID is a single decimal byte
 // payload is message dependent.
-func Read(r io.Reader) *Message {
+func Read(r io.Reader) (*Message, error) {
 	lengthBuff := make([]byte, 4)
 	_, err := io.ReadFull(r, lengthBuff)
 	if err != nil {
-		fmt.Printf("Error while reading the prefix length: %v", err.Error())
-		return nil
+		fmt.Printf("Error while reading the prefix length in message: %v", err.Error())
+		return nil, err
 	}
 
 	length := binary.BigEndian.Uint32(lengthBuff)
@@ -61,22 +61,101 @@ func Read(r io.Reader) *Message {
 	_, err = io.ReadFull(r, message)
 	if err != nil {
 		fmt.Printf("Error while reading the message: %v", err.Error())
-		return nil
+		return nil, err
 	}
 
 	return &Message{
 		Id:      messageId(message[0]),
 		Payload: message[1:],
+	}, nil
+}
+
+// keep-alive is 0 length, the id is not serialized
+func NewKeepAlive() *Message {
+	return nil
+}
+
+func NewRequest(pieceIndex, offset, length int) (*Message, error) {
+	if pieceIndex < 0 || offset < 0 || length <= 0 || length > BlockSize {
+		return nil, fmt.Errorf("invalid parameters: pieceIndex=%d, offset=%d, length=%d", pieceIndex, offset, length)
+	}
+	payload := make([]byte, 12)
+	binary.BigEndian.PutUint32(payload[0:4], uint32(pieceIndex))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(offset))
+	binary.BigEndian.PutUint32(payload[8:12], uint32(length))
+	return &Message{
+		Id:      RequestMsg,
+		Payload: payload,
+	}, nil
+}
+
+func NewInterested() *Message {
+	return &Message{
+		Id:      InterestedMsg,
+		Payload: nil,
 	}
 }
 
-func (m *Message) KeepAliveMsg() []byte {
-	msg := make([]byte, 4)
-	binary.BigEndian.PutUint32(msg, 0)
-	return msg
+func NewNotInterested() *Message {
+	return &Message{
+		Id:      NotInterestedMsg,
+		Payload: nil,
+	}
 }
 
-func (m *Message) GetMessageName() string {
+func NewHave(pieceIndex int) *Message {
+	payload := make([]byte, 4)
+	binary.BigEndian.PutUint32(payload, uint32(pieceIndex))
+	return &Message{
+		Id:      HaveMsg,
+		Payload: payload,
+	}
+}
+
+func NewBitfield(bitfield []byte) *Message {
+	return &Message{
+		Id:      BitfieldMsg,
+		Payload: bitfield,
+	}
+}
+
+func NewPiece(pieceIndex, begin int, block []byte) *Message {
+	payload := make([]byte, 8+len(block))
+	binary.BigEndian.PutUint32(payload[0:4], uint32(pieceIndex))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(begin))
+	copy(payload[8:], block)
+	return &Message{
+		Id:      PieceMsg,
+		Payload: payload,
+	}
+}
+
+func NewCancel(pieceIndex, offset, length int) *Message {
+	payload := make([]byte, 12)
+	binary.BigEndian.PutUint32(payload[0:4], uint32(pieceIndex))
+	binary.BigEndian.PutUint32(payload[4:8], uint32(offset))
+	binary.BigEndian.PutUint32(payload[8:12], uint32(length))
+	return &Message{
+		Id:      CancelMsg,
+		Payload: payload,
+	}
+}
+
+func NewChoke() *Message {
+	return &Message{
+		Id:      ChokeMsg,
+		Payload: nil, // Choke messages have no payload
+	}
+}
+
+func NewUnchoke() *Message {
+	return &Message{
+		Id:      UnchokeMsg,
+		Payload: nil, // Unchoke messages have no payload
+	}
+}
+
+func (m *Message) Name() string {
 	switch m.Id {
 	case ChokeMsg:
 		return "ChokeMsg"
@@ -101,8 +180,4 @@ func (m *Message) GetMessageName() string {
 	default:
 		return "UnknownMsg"
 	}
-}
-
-func (m *Message) onBitfieldMsg() {
-
 }
