@@ -52,7 +52,7 @@ func (h *Handshake) Deserialize(r io.Reader) (*Handshake, error) {
 	bodyBuff := make([]byte, pstrLen+48) //handshake size (in bytes) - 1 byte from the header, already consumed
 	_, err = io.ReadFull(r, bodyBuff)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read handshake body: %v\", err")
+		return nil, fmt.Errorf("failed to read handshake body: %v\n", err)
 	}
 
 	//reserved := bodyBuff[pstrLen : pstrLen+8]
