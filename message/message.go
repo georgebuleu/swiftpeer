@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"swiftpeer/client/common"
 )
 
 type messageId byte
@@ -76,7 +77,7 @@ func NewKeepAlive() *Message {
 }
 
 func NewRequest(pieceIndex, offset, length int) (*Message, error) {
-	if pieceIndex < 0 || offset < 0 || length <= 0 || length > BlockSize {
+	if pieceIndex < 0 || offset < 0 || length <= 0 || length > common.BlockSize {
 		return nil, fmt.Errorf("invalid parameters: pieceIndex=%d, offset=%d, length=%d", pieceIndex, offset, length)
 	}
 	payload := make([]byte, 12)
@@ -153,6 +154,35 @@ func NewUnchoke() *Message {
 		Id:      UnchokeMsg,
 		Payload: nil, // Unchoke messages have no payload
 	}
+}
+
+func (m *Message) ProcessHaveMsg() (int, error) {
+	if len(m.Payload) != 4 {
+		return 0, fmt.Errorf("malformed paylod, length %v", len(m.Payload))
+	}
+	return int(binary.BigEndian.Uint32(m.Payload)), nil
+}
+
+func (m *Message) ProcessPieceMsg(index int, data []byte) (int, error) {
+	if len(m.Payload) < 0 {
+		return 0, fmt.Errorf("invalid payload size")
+	}
+	pieceIndex := int(binary.BigEndian.Uint32(m.Payload[0:4]))
+	if pieceIndex != index {
+		return 0, fmt.Errorf("different piece index. expected: %v received: %v", index, pieceIndex)
+	}
+	begin := int(binary.BigEndian.Uint32(m.Payload[4:8]))
+	if begin > len(data) {
+		return 0, fmt.Errorf("begin offset is out of bounds: %v", begin)
+	}
+	block := m.Payload[8:]
+
+	if begin+len(block) > len(data) {
+		return 0, fmt.Errorf("block + offset (%v) bigger than expected(%v)\n", len(block)+begin, len(data))
+	}
+	copy(data, m.Payload[8:])
+
+	return len(block), nil
 }
 
 func (m *Message) Name() string {
