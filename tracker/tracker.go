@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"swiftpeer/client/bencode"
-	"swiftpeer/client/handshake"
+	"swiftpeer/client/common"
 	"swiftpeer/client/torrent"
 )
 
@@ -59,7 +59,7 @@ func constructURL(port int) (string, error) {
 
 	params := url.Values{
 		"info_hash":  []string{string(t.InfoHash[:])},
-		"peer_id":    []string{handshake.ClientId[:]},
+		"peer_id":    []string{common.PeerId[:]},
 		"port":       []string{fmt.Sprintf("%d", port)},
 		"uploaded":   []string{"0"},
 		"downloaded": []string{"0"},

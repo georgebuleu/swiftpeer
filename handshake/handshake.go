@@ -7,7 +7,6 @@ import (
 
 const (
 	pstr         = "BitTorrent protocol"
-	ClientId     = "-SP1011-IJLasf24lqrI"
 	handshakeLen = 49 + len(pstr) // hash_info + peer_id + 1(header byte for the length)
 )
 
