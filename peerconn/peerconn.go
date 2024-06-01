@@ -25,7 +25,7 @@ func NewPeerConn(peer tracker.Peer, infoHash [20]byte) (*PeerConn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := net.DialTimeout("tcp", address, time.Second*20)
+	conn, err := net.DialTimeout("tcp", address, time.Second*7)
 
 	if err != nil {
 
@@ -57,6 +57,8 @@ func NewPeerConn(peer tracker.Peer, infoHash [20]byte) (*PeerConn, error) {
 
 func (pc *PeerConn) doHandshake() error {
 	hs := handshake.NewHandshake(common.GetPeerIdAsBytes(pc.Peer.PeerId), pc.InfoHash)
+	pc.Conn.SetDeadline(time.Now().Add(5 * time.Second))
+	defer pc.Conn.SetDeadline(time.Time{})
 	_, err := pc.Conn.Write(hs.Serialize())
 	if err != nil {
 		return fmt.Errorf("failed to send handshake with %v : %v", pc.Conn.RemoteAddr(), err)
@@ -78,7 +80,7 @@ func (pc *PeerConn) doHandshake() error {
 }
 
 func (pc *PeerConn) receiveBitfield() error {
-	pc.Conn.SetDeadline(time.Now().Add(8 * time.Second))
+	pc.Conn.SetDeadline(time.Now().Add(5 * time.Second))
 	defer pc.Conn.SetDeadline(time.Time{})
 
 	msg, err := message.Read(pc.Conn)
@@ -119,8 +121,14 @@ func (pc *PeerConn) SendUnchoke() error {
 	return err
 }
 
-//TODO have message
+func (pc *PeerConn) SendHave(index int) error {
+	_, err := pc.Conn.Write(message.NewHave(index).Serialize())
+	return err
+}
 
 func (pc *PeerConn) Read() (*message.Message, error) {
+	if pc == nil {
+		return nil, fmt.Errorf("error:connection closed")
+	}
 	return message.Read(pc.Conn)
 }
