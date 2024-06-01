@@ -53,22 +53,31 @@ func Read(r io.Reader) (*Message, error) {
 	lengthBuff := make([]byte, 4)
 	_, err := io.ReadFull(r, lengthBuff)
 	if err != nil {
-		fmt.Printf("Error while reading the prefix length in message: %v", err.Error())
+		fmt.Printf("Error while reading the prefix length in message: %v\n", err.Error())
 		return nil, err
 	}
 
 	length := binary.BigEndian.Uint32(lengthBuff)
+
+	if length == 0 {
+		return nil, nil
+	}
+
 	message := make([]byte, length)
 	_, err = io.ReadFull(r, message)
 	if err != nil {
-		fmt.Printf("Error while reading the message: %v", err.Error())
+		fmt.Printf("Error while reading the message: %v\n", err.Error())
 		return nil, err
 	}
 
-	return &Message{
+	m := Message{
 		Id:      messageId(message[0]),
 		Payload: message[1:],
-	}, nil
+	}
+
+	//fmt.Printf("received message type: %v\n", m.Name())
+
+	return &m, nil
 }
 
 // keep-alive is 0 length, the id is not serialized
@@ -78,7 +87,7 @@ func NewKeepAlive() *Message {
 
 func NewRequest(pieceIndex, offset, length int) (*Message, error) {
 	if pieceIndex < 0 || offset < 0 || length <= 0 || length > common.BlockSize {
-		return nil, fmt.Errorf("invalid parameters: pieceIndex=%d, offset=%d, length=%d", pieceIndex, offset, length)
+		return nil, fmt.Errorf("invalid parameters: pieceIndex=%d, offset=%d, length=%d\n", pieceIndex, offset, length)
 	}
 	payload := make([]byte, 12)
 	binary.BigEndian.PutUint32(payload[0:4], uint32(pieceIndex))
@@ -157,30 +166,36 @@ func NewUnchoke() *Message {
 }
 
 func (m *Message) ProcessHaveMsg() (int, error) {
+	if m.Id != HaveMsg {
+		return 0, fmt.Errorf("expected HAVE message (Id %d), received Id %d", HaveMsg, m.Id)
+	}
 	if len(m.Payload) != 4 {
-		return 0, fmt.Errorf("malformed paylod, length %v", len(m.Payload))
+		return 0, fmt.Errorf("malformed paylod, length %v\n", len(m.Payload))
 	}
 	return int(binary.BigEndian.Uint32(m.Payload)), nil
 }
 
 func (m *Message) ProcessPieceMsg(index int, data []byte) (int, error) {
-	if len(m.Payload) < 0 {
-		return 0, fmt.Errorf("invalid payload size")
+	if m.Id != PieceMsg {
+		return 0, fmt.Errorf("expected PIECE (Id %d), got Id %d", PieceMsg, m.Id)
+	}
+	if len(m.Payload) < 8 {
+		return 0, fmt.Errorf("invalid payload size\n")
 	}
 	pieceIndex := int(binary.BigEndian.Uint32(m.Payload[0:4]))
 	if pieceIndex != index {
-		return 0, fmt.Errorf("different piece index. expected: %v received: %v", index, pieceIndex)
+		return 0, fmt.Errorf("different piece index. expected: %v received: %v\n", index, pieceIndex)
 	}
 	begin := int(binary.BigEndian.Uint32(m.Payload[4:8]))
 	if begin > len(data) {
-		return 0, fmt.Errorf("begin offset is out of bounds: %v", begin)
+		return 0, fmt.Errorf("begin offset is out of bounds: %v\n", begin)
 	}
 	block := m.Payload[8:]
 
 	if begin+len(block) > len(data) {
-		return 0, fmt.Errorf("block + offset (%v) bigger than expected(%v)\n", len(block)+begin, len(data))
+		return 0, fmt.Errorf("block + offset (%v) bigger than expected(%v)\n\n", len(block)+begin, len(data))
 	}
-	copy(data, m.Payload[8:])
+	copy(data[begin:], block)
 
 	return len(block), nil
 }
