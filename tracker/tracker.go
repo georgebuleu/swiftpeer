@@ -47,8 +47,7 @@ func (p Peer) FormatAddress() (string, error) {
 }
 
 // ip and event are optional, but that might change
-func constructURL(port int) (string, error) {
-	t := torrent.NewTorrent()
+func constructURL(t *torrent.Torrent, port int) (string, error) {
 	if t == nil {
 		return "", fmt.Errorf("Tracker: failed to create a new torrent")
 	}
@@ -70,8 +69,8 @@ func constructURL(port int) (string, error) {
 	return domain.String(), nil
 }
 
-func AnnounceTracker(port int) (string, error) {
-	u, err := constructURL(port)
+func AnnounceTracker(t *torrent.Torrent, port int) (string, error) {
+	u, err := constructURL(t, port)
 	if err != nil {
 		return u, err
 	}
@@ -91,8 +90,8 @@ func AnnounceTracker(port int) (string, error) {
 }
 
 // TO DO: peer id not consumed
-func ParseTrackerResponse() (TrackerResponse, error) {
-	response, err := AnnounceTracker(6889)
+func ParseTrackerResponse(t *torrent.Torrent) (TrackerResponse, error) {
+	response, err := AnnounceTracker(t, 6889)
 	if err != nil {
 		return TrackerResponse{}, err
 	}
