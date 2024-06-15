@@ -26,6 +26,7 @@ func NewMetadata() *Metadata {
 	m := new(Metadata)
 	err := m.load()
 	if err != nil {
+		fmt.Printf(err.Error() + "\n")
 		return nil
 	}
 	return m
