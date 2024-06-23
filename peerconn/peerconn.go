@@ -8,19 +8,19 @@ import (
 	"swiftpeer/client/common"
 	"swiftpeer/client/handshake"
 	"swiftpeer/client/message"
-	"swiftpeer/client/tracker"
+	"swiftpeer/client/peer"
 	"time"
 )
 
 type PeerConn struct {
 	Conn     net.Conn
-	Peer     tracker.Peer
+	Peer     peer.Peer
 	InfoHash [20]byte
 	IsChoked bool
 	Pieces   bitfield.Bitfield
 }
 
-func NewPeerConn(peer tracker.Peer, infoHash [20]byte) (*PeerConn, error) {
+func NewPeerConn(peer peer.Peer, infoHash [20]byte) (*PeerConn, error) {
 	address, err := peer.FormatAddress()
 	if err != nil {
 		return nil, err

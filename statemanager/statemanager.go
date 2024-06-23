@@ -7,8 +7,8 @@ import (
 	"log"
 	"runtime"
 	"swiftpeer/client/message"
+	"swiftpeer/client/peer"
 	"swiftpeer/client/peerconn"
-	"swiftpeer/client/tracker"
 	"time"
 )
 
@@ -23,7 +23,7 @@ type Torrent struct {
 	PieceHashes [][20]byte
 	PieceLength int
 	PeerID      [20]byte
-	Peers       []tracker.Peer
+	Peers       []peer.Peer
 }
 
 // used to track the progress of a piece
@@ -125,7 +125,7 @@ func prepareDownload(pc *peerconn.PeerConn, task *pieceTask) ([]byte, error) {
 	return state.data, nil
 }
 
-func (t *Torrent) startTask(peer tracker.Peer, pieceQueue chan *pieceTask, completed chan *pieceCompleted) {
+func (t *Torrent) startTask(peer peer.Peer, pieceQueue chan *pieceTask, completed chan *pieceCompleted) {
 	pc, err := peerconn.NewPeerConn(peer, t.InfoHash)
 
 	if err != nil {
