@@ -8,33 +8,32 @@ import (
 	"swiftpeer/client/common"
 	"swiftpeer/client/handshake"
 	"swiftpeer/client/message"
-	"swiftpeer/client/peer"
 	"time"
 )
 
 type PeerConn struct {
 	Conn     net.Conn
-	Peer     peer.Peer
+	Addr     string
 	InfoHash [20]byte
 	IsChoked bool
 	Pieces   bitfield.Bitfield
 }
 
-func NewPeerConn(peer peer.Peer, infoHash [20]byte) (*PeerConn, error) {
-	address, err := peer.FormatAddress()
-	if err != nil {
-		return nil, err
-	}
-	conn, err := net.DialTimeout("tcp", address, time.Second*7)
+func NewPeerConn(addr string, infoHash [20]byte) (*PeerConn, error) {
+	//address, err := addr.FormatAddress()
+	//if err != nil {
+	//	return nil, err
+	//}
+	conn, err := net.DialTimeout("tcp", addr, time.Second*3)
 
 	if err != nil {
 
-		return nil, fmt.Errorf("Failed to connect to  %v. %v\n", address, err.Error())
+		return nil, fmt.Errorf("Failed to connect to  %v. %v\n", addr, err.Error())
 	}
 
 	pc := &PeerConn{
 		Conn:     conn,
-		Peer:     peer,
+		Addr:     addr,
 		InfoHash: infoHash,
 		IsChoked: true,
 		Pieces:   bitfield.Bitfield{},
@@ -56,7 +55,7 @@ func NewPeerConn(peer peer.Peer, infoHash [20]byte) (*PeerConn, error) {
 }
 
 func (pc *PeerConn) doHandshake() error {
-	hs := handshake.NewHandshake(common.GetPeerIdAsBytes(pc.Peer.PeerId), pc.InfoHash)
+	hs := handshake.NewHandshake(common.GetPeerIdAsBytes(common.PeerId), pc.InfoHash)
 	pc.Conn.SetDeadline(time.Now().Add(5 * time.Second))
 	defer pc.Conn.SetDeadline(time.Time{})
 	_, err := pc.Conn.Write(hs.Serialize())

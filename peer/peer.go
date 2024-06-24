@@ -5,6 +5,10 @@ import (
 	"net"
 )
 
+// AddrSet type that stores unique addresses
+
+type AddrSet map[string]struct{}
+
 type Peer struct {
 	IP     string
 	Port   int
