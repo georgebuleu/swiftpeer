@@ -4,28 +4,51 @@ import (
 	"fmt"
 	"os"
 	"swiftpeer/client/common"
-	"swiftpeer/client/peerconn"
+	"swiftpeer/client/peer"
 	"swiftpeer/client/statemanager"
 	"swiftpeer/client/torrent"
 	"swiftpeer/client/tracker"
-	"sync"
 )
 
-const Port int = 6889
+const Port int = 6881
 
 func main() {
-	outFile := "/home/george/test_licenta/down1.iso"
+	peers := make(peer.AddrSet)
+	outFile := "/home/george/test_licenta/deb2.iso"
 	tf := torrent.NewTorrent()
 	if tf == nil {
 		fmt.Println("main: could not load torrent file")
 		return
 	}
-	res, err := tracker.ParseTrackerResponse(tf)
-	err = DownloadFile(tf, &res, outFile)
+	err := tracker.GetTorrentData(tf.Announce, tf.AnnounceList, Port, tf.InfoHash, peers)
 	if err != nil {
 		fmt.Println(err)
 	}
+	fmt.Printf("len peers: %v\n\n", len(peers))
+	for k, _ := range peers {
+		fmt.Println(k)
+	}
+	err = DownloadFile(tf, peers, outFile)
+	//if _, ok := r.(*tracker.UdpResponse); ok {
+	//	err = DownloadFile(tf, r.(*tracker.UdpResponse).Peers, outFile)
+	//	if err != nil {
+	//		fmt.Println(err)
+	//	}
+	//	fmt.Println()
+	//} else if _, ok := r.(*tracker.CompactResponse); ok {
+	//	err = DownloadFile(tf, r.(*tracker.CompactResponse).Peers, outFile)
+	//	if err != nil {
+	//		fmt.Println(err)
+	//	}
+	//	fmt.Println()
+	//} else if _, ok := r.(*tracker.OriginalResponse); ok {
+	//	err = DownloadFile(tf, r.(*tracker.OriginalResponse).Peers, outFile)
+	//	if err != nil {
+	//		fmt.Println(err)
+	//	}
+	//}
 	fmt.Println()
+
 }
 
 //func main() {
@@ -42,28 +65,28 @@ func main() {
 //
 //}
 
-func HandlePeers(peers []tracker.Peer, infoHash [20]byte, wg *sync.WaitGroup) {
-	for _, peer := range peers {
-		wg.Add(1)
-		go func(p tracker.Peer) {
-			conn, err := peerconn.NewPeerConn(p, infoHash)
-			if err != nil {
-				fmt.Println(err)
-			}
-			_, err = conn.Read()
-			if err != nil {
-				fmt.Println(err)
-				return
-			}
-			wg.Done()
-		}(peer)
-	}
-}
+//func HandlePeers(peers []tracker.Addr, infoHash [20]byte, wg *sync.WaitGroup) {
+//	for _, peer := range peers {
+//		wg.Add(1)
+//		go func(p tracker.Addr) {
+//			conn, err := peerconn.NewPeerConn(p, infoHash)
+//			if err != nil {
+//				fmt.Println(err)
+//			}
+//			_, err = conn.Read()
+//			if err != nil {
+//				fmt.Println(err)
+//				return
+//			}
+//			wg.Done()
+//		}(peer)
+//	}
+//}
 
-func DownloadFile(tf *torrent.Torrent, trackerRes *tracker.TrackerResponse, path string) error {
+func DownloadFile(tf *torrent.Torrent, peers peer.AddrSet, path string) error {
 
 	tr := &statemanager.Torrent{
-		Peers:       trackerRes.Peers,
+		Peers:       peers,
 		PeerID:      common.GetPeerIdAsBytes(common.PeerId),
 		InfoHash:    tf.InfoHash,
 		PieceHashes: tf.PieceHashes,
