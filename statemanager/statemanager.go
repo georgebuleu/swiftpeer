@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
+	"io"
 	"log"
 	"runtime"
 	"swiftpeer/client/message"
@@ -23,7 +24,7 @@ type Torrent struct {
 	PieceHashes [][20]byte
 	PieceLength int
 	PeerID      [20]byte
-	Peers       []peer.Peer
+	Peers       peer.AddrSet
 }
 
 // used to track the progress of a piece
@@ -93,7 +94,7 @@ func prepareDownload(pc *peerconn.PeerConn, task *pieceTask) ([]byte, error) {
 		data:     make([]byte, task.length),
 	}
 
-	pc.Conn.SetDeadline(time.Now().Add(30 * time.Second))
+	pc.Conn.SetDeadline(time.Now().Add(25 * time.Second))
 	defer pc.Conn.SetDeadline(time.Time{})
 
 	for state.downloaded < task.length {
@@ -125,27 +126,26 @@ func prepareDownload(pc *peerconn.PeerConn, task *pieceTask) ([]byte, error) {
 	return state.data, nil
 }
 
-func (t *Torrent) startTask(peer peer.Peer, pieceQueue chan *pieceTask, completed chan *pieceCompleted) {
+func (t *Torrent) startTask(peer string, pieceQueue chan *pieceTask, completed chan *pieceCompleted) {
 	pc, err := peerconn.NewPeerConn(peer, t.InfoHash)
 
 	if err != nil {
-		fmt.Printf("Failed to complete the handshake with %v. Disconnecting\n", peer.IP)
-		fmt.Printf("Reason: %v\n", err)
+		fmt.Printf("Failed to complete the handshake with %v. Disconnecting\n", peer)
 		return
 	}
 
-	fmt.Printf("Completed the handshake with %v.\n", peer.IP)
+	defer pc.Conn.Close()
+
+	fmt.Printf("Completed the handshake with %v.\n", peer)
 
 	err = pc.SendUnchoke()
 	if err != nil {
-		fmt.Printf("Failed to send unchoke to %v: %v\n", peer.IP, err)
-		return
+		fmt.Printf("Failed to send unchoke to %v: %v\n", peer, err)
 	}
 
 	err = pc.SendInterested()
 	if err != nil {
-		fmt.Printf("Failed to send interested to %v: %v\n", peer.IP, err)
-		return
+		fmt.Printf("Failed to send interested to %v: %v\n", peer, err)
 	}
 
 	for pieceTask := range pieceQueue {
@@ -156,8 +156,12 @@ func (t *Torrent) startTask(peer peer.Peer, pieceQueue chan *pieceTask, complete
 
 		buff, err := prepareDownload(pc, pieceTask)
 		if err != nil {
-			fmt.Printf("\nError downloading piece %d from %v:\n", pieceTask.index, peer.IP)
+			fmt.Printf("\nError downloading piece %d from %v:\n", pieceTask.index, peer)
+			fmt.Println(err)
 			pieceQueue <- pieceTask
+			if err != io.EOF {
+				continue
+			}
 			return
 		}
 
@@ -166,7 +170,6 @@ func (t *Torrent) startTask(peer peer.Peer, pieceQueue chan *pieceTask, complete
 			pieceQueue <- pieceTask
 			continue
 		} else {
-
 			pc.SendHave(pieceTask.index)
 			completed <- &pieceCompleted{pieceTask.index, buff}
 		}
@@ -206,22 +209,36 @@ func (t *Torrent) Download() ([]byte, error) {
 		piecesQueue <- &pieceTask{idx, hash, length}
 	}
 
-	for _, peer := range t.Peers {
-		go t.startTask(peer, piecesQueue, completed)
+	for p, _ := range t.Peers {
+		go t.startTask(p, piecesQueue, completed)
+
 	}
 	log.Printf("pieces in compeleted %v out of %v\n", len(completed), len(t.PieceHashes))
 	buf := make([]byte, t.Length)
 	finishedPieces := 0
 
+	timeout := time.After(20 * time.Second)
+
 	for finishedPieces < len(t.PieceHashes) {
-		piece := <-completed
-		begin, end := t.computeBounds(piece.index)
 
-		copy(buf[begin:end], piece.buf)
-		finishedPieces++
+		select {
+		case piece, more := <-completed:
+			if !more {
+				break
+			}
 
-		log.Printf("pieces in compeleted %v out of %v\n", finishedPieces, len(t.PieceHashes))
-		log.Printf("(%0.2f%%) Downloaded piece #%d from %d peers\n", float64(finishedPieces)/float64(len(t.PieceHashes))*100, piece.index, runtime.NumGoroutine()-1)
+			begin, end := t.computeBounds(piece.index)
+
+			copy(buf[begin:end], piece.buf)
+			finishedPieces++
+			timeout = time.After(30 * time.Second)
+			log.Printf("pieces in compeleted %v out of %v\n", finishedPieces, len(t.PieceHashes))
+			log.Printf("(%0.2f%%) Downloaded piece #%d from %d peers\n", float64(finishedPieces)/float64(len(t.PieceHashes))*100, piece.index, runtime.NumGoroutine()-1)
+		case <-timeout:
+			fmt.Printf("timeout: no pieces completed within 20 seconds")
+			return nil, fmt.Errorf("no connections available")
+		}
+
 	}
 	close(piecesQueue)
 
