@@ -12,13 +12,14 @@ const HashLen = sha1.Size
 
 // Torrent TODO: add support for multiple files
 type Torrent struct {
-	Announce    string
-	Name        string
-	PieceLength int
-	InfoHash    [HashLen]byte
-	PieceHashes [][HashLen]byte
-	Length      int
-	Files       []struct {
+	Announce     string
+	AnnounceList [][]string
+	Name         string
+	PieceLength  int
+	InfoHash     [HashLen]byte
+	PieceHashes  [][HashLen]byte
+	Length       int
+	Files        []struct {
 		Length int
 		Path   string
 	}
@@ -43,13 +44,14 @@ func NewTorrent() *Torrent {
 	}
 
 	return &Torrent{
-		Announce:    m.Announce,
-		Name:        m.Name,
-		PieceLength: m.PieceLength,
-		InfoHash:    infoHash,
-		PieceHashes: pieceHashes,
-		Length:      m.Length,
-		Files:       m.Files,
+		Announce:     m.Announce,
+		AnnounceList: m.AnnounceList,
+		Name:         m.Name,
+		PieceLength:  m.PieceLength,
+		InfoHash:     infoHash,
+		PieceHashes:  pieceHashes,
+		Length:       m.Length,
+		Files:        m.Files,
 	}
 }
 

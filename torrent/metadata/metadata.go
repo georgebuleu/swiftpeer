@@ -9,12 +9,13 @@ import (
 )
 
 type Metadata struct {
-	Announce    string
-	Name        string
-	PieceLength int
-	Pieces      string
-	Length      int
-	Files       []struct {
+	Announce     string
+	AnnounceList [][]string
+	Name         string
+	PieceLength  int
+	Pieces       string
+	Length       int
+	Files        []struct {
 		Length int
 		Path   string
 	}
@@ -55,14 +56,34 @@ func (m *Metadata) load() error {
 
 			} else {
 
-				return fmt.Errorf("invalid 'announce' field type")
+				fmt.Println("invalid 'announce' field type")
 
 			}
 
 		} else {
+			fmt.Println("missing 'announce' field")
+		}
 
-			return fmt.Errorf("missing 'announce' field")
-
+		if announceList, ok := data["announce-list"]; ok {
+			if list, ok := announceList.([]interface{}); ok {
+				for _, tier := range list {
+					if urls, ok := tier.([]interface{}); ok {
+						var tierList []string
+						for _, u := range urls {
+							if url, ok := u.(string); ok {
+								tierList = append(tierList, url)
+							} else {
+								fmt.Printf("invalid 'announce-list' URL type: %v\n", u)
+							}
+						}
+						m.AnnounceList = append(m.AnnounceList, tierList)
+					} else {
+						fmt.Printf("invalid 'announce-list' tier type: %v\n", tier)
+					}
+				}
+			} else {
+				fmt.Printf("invalid 'announce-list' field type\n")
+			}
 		}
 
 		if infoData, ok := data["info"].(map[string]interface{}); ok {
