@@ -76,69 +76,76 @@ func parseTrackerResponse(response string) (interface{}, error) {
 	fmt.Println(response)
 	decodedResponse, err := bencode.NewDecoder(bufio.NewReader(strings.NewReader(response))).Decode()
 	if err != nil {
-		return OriginalResponse{}, err
+		return nil, err
 	}
+
+	data, ok := decodedResponse.(map[string]interface{})
+	if !ok {
+		return nil, fmt.Errorf("invalid format")
+	}
+
+	if _, ok := data["peers"].(string); ok {
+		// Compact format
+		return parseCompactFormat(response)
+	}
+
+	if _, ok := data["peers"].([]interface{}); ok {
+		// Original format
+		return parseOriginalFormat(data)
+	}
+
+	return nil, fmt.Errorf("invalid peers field format")
+}
+
+func parseOriginalFormat(data map[string]interface{}) (OriginalResponse, error) {
 	var trackerResponse OriginalResponse
 
-	switch data := decodedResponse.(type) {
-	case map[string]interface{}:
-		//complete is optional
-		if complete, ok := data["complete"].(int); ok {
-			trackerResponse.Complete = complete
-		} else {
-			trackerResponse.Complete = 0
-		}
-		//incomplete is optional
-		if incomplete, ok := data["incomplete"].(int); ok {
-			trackerResponse.Incomplete = incomplete
-		} else {
-			trackerResponse.Incomplete = 0
-		}
-		if interval, ok := data["interval"].(int); ok {
-			trackerResponse.Interval = interval
-		} else {
-			return OriginalResponse{}, fmt.Errorf("invalid interval field")
-		}
-
-		//check format and parse based on it
-
-		switch peers := data["peers"].(type) {
-		case string:
-			res, err := parseCompactFormat(peers)
-			if err != nil {
-				return CompactResponse{}, err
-			}
-			return res, nil
-
-		case []interface{}:
-			if peersList, ok := data["peers"].([]interface{}); ok {
-				var peers []peer.Peer
-				for _, p := range peersList {
-					if _, ok := p.(map[string]any)["peer_id"].(string); !ok {
-						peers = append(peers, peer.Peer{
-							IP:     p.(map[string]any)["ip"].(string),
-							Port:   p.(map[string]any)["port"].(int),
-							PeerId: "",
-						})
-					} else {
-						peers = append(peers, peer.Peer{
-							IP:     p.(map[string]any)["ip"].(string),
-							Port:   p.(map[string]any)["port"].(int),
-							PeerId: p.(map[string]any)["peer_id"].(string),
-						})
-					}
-
-				}
-				trackerResponse.Peers = peers
-			} else {
-				return OriginalResponse{}, fmt.Errorf("invalid peer field")
-			}
-		}
-
-	default:
-		return OriginalResponse{}, fmt.Errorf("invalid format")
+	if interval, ok := data["interval"].(int); ok {
+		trackerResponse.Interval = interval
+	} else {
+		return trackerResponse, fmt.Errorf("invalid interval field")
 	}
-	return trackerResponse, err
+
+	if complete, ok := data["complete"].(int); ok {
+		trackerResponse.Complete = complete
+	}
+
+	if incomplete, ok := data["incomplete"].(int); ok {
+		trackerResponse.Incomplete = incomplete
+	}
+
+	if peersList, ok := data["peers"].([]interface{}); ok {
+		var peers []peer.Peer
+		for _, p := range peersList {
+			peerMap, ok := p.(map[string]interface{})
+			if !ok {
+				return trackerResponse, fmt.Errorf("invalid peer entry")
+			}
+
+			ip, ipOk := peerMap["ip"].(string)
+			port, portOk := peerMap["port"].(int)
+			peerID, peerIDOk := peerMap["peer_id"].(string)
+
+			if !ipOk || !portOk {
+				return trackerResponse, fmt.Errorf("invalid peer entry fields")
+			}
+
+			if !peerIDOk {
+				peerID = ""
+			}
+
+			peers = append(peers, peer.Peer{
+				IP:     ip,
+				Port:   port,
+				PeerId: peerID,
+			})
+		}
+		trackerResponse.Peers = peers
+	} else {
+		return trackerResponse, fmt.Errorf("invalid peers field")
+	}
+
+	return trackerResponse, nil
 }
 
 func parseCompactFormat(response string) (CompactResponse, error) {
