@@ -147,6 +147,8 @@ func (m *Metadata) load() error {
 					m.Length = 0
 				}
 
+				m.PieceLength = infoData["piece length"].(int)
+
 				m.Pieces = infoData["pieces"].(string)
 
 				m.Files = files
