@@ -20,7 +20,7 @@ const (
 	protocolId           = 0x41727101980
 	connPacketSize       = 16
 	announceReqSize      = 98
-	maxRetries           = 8
+	maxRetries           = 1
 	minRetries           = 0
 	connIdExpirationTime = 60 * time.Second
 )
