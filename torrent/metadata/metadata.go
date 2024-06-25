@@ -17,7 +17,7 @@ type Metadata struct {
 	Length       int
 	Files        []struct {
 		Length int
-		Path   string
+		Path   []string
 	}
 }
 
@@ -112,29 +112,40 @@ func (m *Metadata) load() error {
 				var files []struct {
 					Length int
 
-					Path string
+					Path []string
 				}
 
 				for _, fileData := range filesData.([]interface{}) {
 
 					fileData := fileData.(map[string]interface{})
 
+					pathInterfaces := fileData["path"].([]interface{})
+					pathStrings := make([]string, len(pathInterfaces))
+
+					for i, v := range pathInterfaces {
+						pathStrings[i] = v.(string)
+					}
+
 					files = append(files, struct {
 						Length int
 
-						Path string
+						Path []string
 					}{
 
 						Length: fileData["length"].(int),
 
-						Path: fileData["path"].(string),
+						Path: pathStrings,
 					})
 
 				}
 
 				m.Name = infoData["name"].(string)
 
-				m.Length = infoData["length"].(int)
+				if l, ok := infoData["length"].(int); ok {
+					m.Length = l
+				} else {
+					m.Length = 0
+				}
 
 				m.Pieces = infoData["pieces"].(string)
 
@@ -170,11 +181,16 @@ func (m *Metadata) InfoDict() map[string]interface{} {
 	}
 	//multiple file case
 	if len(m.Files) > 0 {
-		var files []map[string]interface{}
+		files := make([]interface{}, 0, len(m.Files))
+
 		for _, file := range m.Files {
+			interfaces := make([]interface{}, len(file.Path))
+			for i, v := range file.Path {
+				interfaces[i] = v
+			}
 			files = append(files, map[string]interface{}{
 				"length": file.Length,
-				"path":   file.Path,
+				"path":   interfaces,
 			})
 		}
 		return map[string]interface{}{
@@ -184,7 +200,6 @@ func (m *Metadata) InfoDict() map[string]interface{} {
 			"files":        files,
 		}
 	}
-
 	return nil
 }
 

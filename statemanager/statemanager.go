@@ -25,6 +25,10 @@ type Torrent struct {
 	PieceLength int
 	PeerID      [20]byte
 	Peers       peer.AddrSet
+	Files       []struct {
+		Length int
+		Path   string
+	}
 }
 
 // used to track the progress of a piece

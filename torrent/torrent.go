@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
+	"path/filepath"
 	"swiftpeer/client/bencode"
 	"swiftpeer/client/torrent/metadata"
 )
@@ -18,7 +19,7 @@ type Torrent struct {
 	PieceLength  int
 	InfoHash     [HashLen]byte
 	PieceHashes  [][HashLen]byte
-	Length       int
+	TotalLength  int
 	Files        []struct {
 		Length int
 		Path   string
@@ -27,6 +28,7 @@ type Torrent struct {
 
 func NewTorrent() *Torrent {
 	m := metadata.NewMetadata()
+
 	if m == nil {
 		fmt.Printf("torrent: Failed to load metadata\n")
 		return nil
@@ -42,17 +44,44 @@ func NewTorrent() *Torrent {
 		fmt.Printf("torrent: %v", err)
 		return nil
 	}
+	if len(m.Files) == 0 && m.Length == 0 {
+		fmt.Printf("torrent: no length or files\n")
+	}
 
-	return &Torrent{
+	t := &Torrent{
 		Announce:     m.Announce,
 		AnnounceList: m.AnnounceList,
 		Name:         m.Name,
 		PieceLength:  m.PieceLength,
 		InfoHash:     infoHash,
 		PieceHashes:  pieceHashes,
-		Length:       m.Length,
-		Files:        m.Files,
 	}
+
+	if m.Length != 0 {
+		t.Files = append(t.Files, struct {
+			Length int
+			Path   string
+		}{
+			Length: m.Length,
+			Path:   m.Name,
+		})
+		t.TotalLength = m.Length
+	} else {
+		for _, file := range m.Files {
+			paths := append([]string{m.Name}, file.Path...)
+			t.Files = append(t.Files, struct {
+				Length int
+				Path   string
+			}{
+				Length: file.Length,
+				Path:   filepath.Join(paths...),
+			})
+			t.TotalLength += file.Length
+		}
+
+	}
+
+	return t
 }
 
 // hashes the info dict
