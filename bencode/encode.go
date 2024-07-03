@@ -17,6 +17,7 @@ func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{w}
 }
 
+// Encode ignores private fields of struct
 func (e *Encoder) Encode(v interface{}) error {
 	buf := &bytes.Buffer{}
 
@@ -39,6 +40,8 @@ func (e *Encoder) bencode(buf *bytes.Buffer, v reflect.Value) error {
 		return e.encodeList(buf, v)
 	case reflect.Map:
 		return e.encodeDict(buf, v)
+	case reflect.Struct:
+		e.encodeStruct(buf, v)
 	case reflect.Interface, reflect.Ptr:
 		if v.IsNil() {
 			return fmt.Errorf("cannot encode nil value")
@@ -91,6 +94,30 @@ func (e *Encoder) encodeDict(buf *bytes.Buffer, v reflect.Value) error {
 	for _, key := range keys {
 		e.encodeString(buf, key.String())
 		if err := e.bencode(buf, v.MapIndex(key)); err != nil {
+			return err
+		}
+	}
+	buf.WriteByte('e')
+	return nil
+}
+
+func (e *Encoder) encodeStruct(buf *bytes.Buffer, v reflect.Value) error {
+	buf.WriteByte('d')
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		key := field.Name
+		if tag := field.Tag.Get("bencode"); tag != "" {
+			if tag == "-" {
+				continue
+			}
+			key = tag
+		}
+		e.encodeString(buf, key)
+		if err := e.bencode(buf, v.Field(i)); err != nil {
 			return err
 		}
 	}

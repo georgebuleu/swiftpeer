@@ -50,6 +50,19 @@ func TestEncoder_Encode(t *testing.T) {
 			},
 			want: "d4:listl5:helloi5eli1e5:worldee3:numi42ee",
 		},
+		{
+			name: "Encode Struct",
+			data: struct {
+				Announce []string `bencode:"announce"`
+				Length   int      `bencode:"length"`
+				Name     string   `bencode:"name"`
+			}{
+				Announce: []string{"http", "udp"},
+				Length:   2412,
+				Name:     "test",
+			},
+			want: "d8:announcel4:http3:udpe6:lengthi2412e4:name4:teste",
+		},
 	}
 
 	for _, tt := range tests {
