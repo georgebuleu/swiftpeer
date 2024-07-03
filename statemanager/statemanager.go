@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
-	"io"
 	"log"
+	"os"
+	"path/filepath"
 	"runtime"
+	"swiftpeer/client/filewriter"
 	"swiftpeer/client/message"
 	"swiftpeer/client/peer"
 	"swiftpeer/client/peerconn"
@@ -15,6 +17,15 @@ import (
 
 const maxRequest = 5
 const maxBlockSize = 2 << 13
+
+type FileData struct {
+	Length     int
+	Path       string
+	Writer     *filewriter.FileWriter
+	Downloaded int
+	Completed  bool
+	Start      int
+}
 
 // Torrent used to store the necessary information to download  the peers
 type Torrent struct {
@@ -25,10 +36,7 @@ type Torrent struct {
 	PieceLength int
 	PeerID      [20]byte
 	Peers       peer.AddrSet
-	Files       []struct {
-		Length int
-		Path   string
-	}
+	Files       []FileData
 }
 
 // used to track the progress of a piece
@@ -39,7 +47,6 @@ type pieceState struct {
 	requested  int
 	left       int
 	data       []byte
-	nPeers     int // counts how many peers are active
 }
 
 type pieceTask struct {
@@ -163,9 +170,6 @@ func (t *Torrent) startTask(peer string, pieceQueue chan *pieceTask, completed c
 			fmt.Printf("\nError downloading piece %d from %v:\n", pieceTask.index, peer)
 			fmt.Println(err)
 			pieceQueue <- pieceTask
-			if err != io.EOF {
-				continue
-			}
 			return
 		}
 
@@ -204,7 +208,13 @@ func checkIntegrity(task *pieceTask, data []byte) bool {
 	return true
 }
 
-func (t *Torrent) Download() ([]byte, error) {
+func (t *Torrent) Download(path string) error {
+
+	if err := t.setupFiles(path); err != nil {
+		return err
+	}
+	defer t.finalCleanup()
+
 	fmt.Printf("Starting download for%v\n", t.Name)
 	piecesQueue := make(chan *pieceTask, len(t.PieceHashes))
 	completed := make(chan *pieceCompleted)
@@ -218,33 +228,99 @@ func (t *Torrent) Download() ([]byte, error) {
 
 	}
 	log.Printf("pieces in compeleted %v out of %v\n", len(completed), len(t.PieceHashes))
-	buf := make([]byte, t.Length)
+
 	finishedPieces := 0
 
 	timeout := time.After(20 * time.Second)
 
 	for finishedPieces < len(t.PieceHashes) {
-
 		select {
-		case piece, more := <-completed:
-			if !more {
-				break
+		case piece := <-completed:
+			// Directly write to the appropriate file using memory-mapped region
+			if err := t.handlePiece(piece.index, piece.buf); err != nil {
+				fmt.Printf("Failed to handle piece %d: %v\n", piece.index, err)
+				return err
 			}
-
-			begin, end := t.computeBounds(piece.index)
-
-			copy(buf[begin:end], piece.buf)
 			finishedPieces++
-			timeout = time.After(30 * time.Second)
-			log.Printf("pieces in compeleted %v out of %v\n", finishedPieces, len(t.PieceHashes))
+			log.Printf("Downloaded piece #%d out of #%d\n", finishedPieces, len(t.PieceHashes))
+			timeout = time.After(30 * time.Second) // Reset timeout after each successful piece handling
 			log.Printf("(%0.2f%%) Downloaded piece #%d from %d peers\n", float64(finishedPieces)/float64(len(t.PieceHashes))*100, piece.index, runtime.NumGoroutine()-1)
-		case <-timeout:
-			fmt.Printf("timeout: no pieces completed within 20 seconds")
-			return nil, fmt.Errorf("no connections available")
-		}
 
+		case <-timeout:
+			fmt.Printf("Timeout: No pieces completed within the last 30 seconds")
+			return fmt.Errorf("download timeout")
+		}
 	}
 	close(piecesQueue)
 
-	return buf, nil
+	return nil
+}
+
+func (t *Torrent) setupFiles(basePath string) error {
+	currentPosition := 0
+	for i, file := range t.Files {
+		fullPath := filepath.Join(basePath, file.Path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), os.ModePerm); err != nil {
+			return err
+		}
+		writer, err := filewriter.New(fullPath, file.Length)
+		if err != nil {
+			return err
+		}
+		t.Files[i].Writer = writer
+		t.Files[i].Start = currentPosition
+		currentPosition += file.Length
+	}
+	return nil
+}
+
+func (t *Torrent) computeBoundsForFile(file FileData) (int, int) {
+	return file.Start, file.Start + file.Length
+}
+
+func (t *Torrent) handlePiece(pieceIndex int, pieceData []byte) error {
+	begin, end := t.computeBounds(pieceIndex)
+
+	for _, file := range t.Files {
+		if file.Completed {
+			continue
+		}
+
+		fileStart, fileEnd := t.computeBoundsForFile(file)
+		//Check if the piece is between the bounds of the file
+		if begin < fileEnd && end > fileStart {
+			overlapStart := max(begin, fileStart)
+			overlapEnd := min(end, fileEnd)
+			offset := overlapStart - fileStart
+			data := pieceData[overlapStart-begin : overlapEnd-begin]
+			if err := file.Writer.WriteAt(data, offset); err != nil {
+				return err
+			}
+
+			// Update downloaded count and check for completion
+			file.Downloaded += len(data)
+			if file.Downloaded >= file.Length {
+				file.Completed = true
+				if err := file.Writer.Sync(); err != nil {
+					return err
+				}
+				if err := file.Writer.Close(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (t *Torrent) finalCleanup() error {
+	for _, file := range t.Files {
+		if !file.Completed {
+			if file.Writer != nil {
+				file.Writer.Sync()
+				file.Writer.Close()
+			}
+		}
+	}
+	return nil
 }

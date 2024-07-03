@@ -45,35 +45,25 @@ func DownloadFile(tf *torrent.Torrent, peers peer.AddrSet, outDir string) error 
 		PieceLength: tf.PieceLength,
 		Length:      tf.TotalLength,
 		Name:        tf.Name,
-		Files:       tf.Files,
+		Files:       make([]statemanager.FileData, len(tf.Files)),
 	}
-	buf, err := t.Download()
-	if err != nil {
-		return err
+	for i, _ := range tf.Files {
+		t.Files[i].Path = tf.Files[i].Path
+		t.Files[i].Length = tf.Files[i].Length
 	}
 
-	var usedBytes int
 	for _, file := range t.Files {
 		outPath := filepath.Join(outDir, file.Path)
-
-		fmt.Printf("writing to file %q\n", outPath)
-		// ensure the directory exists
 		baseDir := filepath.Dir(outPath)
-		_, err := os.Stat(baseDir)
-		if os.IsNotExist(err) {
-			err := os.MkdirAll(baseDir, os.ModePerm)
-			if err != nil {
+		if _, err := os.Stat(baseDir); os.IsNotExist(err) {
+			if err := os.MkdirAll(baseDir, os.ModePerm); err != nil {
 				return fmt.Errorf("making output directory: %w", err)
 			}
 		}
-		fileRaw := buf[usedBytes : usedBytes+file.Length]
+	}
 
-		// write to the file
-		err = os.WriteFile(outPath, fileRaw, os.ModePerm)
-		usedBytes += file.Length
-		if err != nil {
-			return fmt.Errorf("writing to file: %w", err)
-		}
+	if err := t.Download(outDir); err != nil {
+		return err
 	}
 	return nil
 }
