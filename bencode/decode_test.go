@@ -1,359 +1,273 @@
 package bencode
 
 import (
-	"bufio"
 	"bytes"
-	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 )
 
-func TestDecoder_BytesParsed(t *testing.T) {
-	r := *bufio.NewReader(strings.NewReader("i42e"))
-	decoder := NewDecoder(&r)
-
-	_, err := decoder.Decode()
-	if err != nil {
-		t.Fatalf("Error decoding: %v", err)
-	}
-
-	bytesParsed := decoder.BytesParsed()
-	expectedBytesParsed := len("i42e") - 1 //len() - 1 because it discards 'e'
-	if bytesParsed != expectedBytesParsed {
-		t.Errorf("BytesParsed() = %v, want %v", bytesParsed, expectedBytesParsed)
-	}
-}
-
-func TestDecoder_Decode(t *testing.T) {
-	testCases := []struct {
-		name    string
-		input   string
-		want    interface{}
-		wantErr bool
+func TestDecodeString(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
 	}{
-
-		{"Integer", "i42e", 42, false},
-		{"String", "5:hello", "hello", false},
-		{"List", "li42e3:fooe", []interface{}{42, "foo"}, false},
-		{"Dictionary", "d3:foo3:bare", map[string]interface{}{"foo": "bar"}, false},
-		//TODO fix the invalid input test, parameters of the are not the same for all encoding types
-		//{"InvalidInput", "invalid", nil, true},
+		{"5:hello", "hello"},
+		{"0:", ""},
+		{"4:test", "test"},
+		{"13:longer string", "longer string"},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := bufio.NewReader(strings.NewReader(tc.input))
-			decoder := NewDecoder(r)
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			reader := bytes.NewReader([]byte(tt.input))
+			decoder := NewDecoder(reader)
 
-			got, err := decoder.Decode()
+			var result string
+			err := decoder.Decode(&result)
 
-			if (err != nil) != tc.wantErr {
-				t.Errorf("Decode() error = %v, wantErr %v", err, tc.wantErr)
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
 			}
 
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("Decode() got = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-func generateBencodedDict() (string, map[string]interface{}) {
-	b := strings.Builder{}
-	b.WriteString("d")
-	expected := make(map[string]interface{})
-	for i := 0; i < 240; i++ {
-		key := fmt.Sprintf("key%d", i)
-		value := fmt.Sprintf("value%d", i)
-
-		b.WriteString(fmt.Sprintf("%d:%s%d:%s", len(key), key, len(value), value))
-		expected[key] = value
-	}
-	b.WriteString("e")
-	return b.String(), expected
-}
-
-func TestDecoder_decodeDictionary(t *testing.T) {
-	got, want := generateBencodedDict()
-	testCases := []struct {
-		name    string
-		input   string
-		want    map[string]interface{}
-		wantErr bool
-	}{
-
-		{"EmptyDictionary", "de", map[string]interface{}{}, false},
-		{"SingleElement", "d3:key5:valuee", map[string]interface{}{"key": "value"}, false},
-		{"MultipleElements", "d3:foo3:bar3:baz3:quxe", map[string]interface{}{"foo": "bar", "baz": "qux"}, false},
-		{"NestedDictionary", "d4:dictd4:key14:val14:key24:val2ee", map[string]interface{}{"dict": map[string]interface{}{"key1": "val1", "key2": "val2"}}, false},
-		{"LongDictionary", got, want, false},
-		{"InvalidInput", "invalid", nil, true},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := bufio.NewReader(strings.NewReader(tc.input))
-			decoder := NewDecoder(r)
-
-			got, err := decoder.decodeDictionary()
-
-			if (err != nil) != tc.wantErr {
-				t.Errorf("decodeDictionary() error = %v, wantErr %v", err, tc.wantErr)
-				return
-			}
-			fmt.Printf("\ngot =\n %v, \nwant =\n %v\n", got, tc.want)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("decodeDictionary() got = %v, want %v", got, tc.want)
+			if result != tt.expected {
+				t.Errorf("Expected %s, got %s", tt.expected, result)
 			}
 		})
 	}
 }
 
-func TestDecoder_DecodeInteger(t *testing.T) {
-	testCases := []struct {
-		input     string
-		expected  int
-		wantError bool
+func TestDecodeInt(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected int64
 	}{
-		{"i123e", 123, false},
-		{"i0e", 0, false},
-		{"i-42e", -42, false},
-		{"i-0e", 0, true},
-		{"i02e", 0, true},
+		{"i42e", 42},
+		{"i0e", 0},
+		{"i-42e", -42},
+		{"i1000000e", 1000000},
 	}
 
-	for _, tc := range testCases {
-		r := bufio.NewReader(strings.NewReader(tc.input))
-		decoder := NewDecoder(r)
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			reader := bytes.NewReader([]byte(tt.input))
+			decoder := NewDecoder(reader)
 
-		result, err := decoder.Decode()
-		if (err != nil) != tc.wantError {
-			t.Errorf("Error decoding input %s: %v", tc.input, err)
-		}
+			var result int64
+			err := decoder.Decode(&result)
 
-		if got, ok := result.(int); ok {
-			if got != tc.expected {
-				t.Errorf("For input %s, expected %d, but got %d", tc.input, tc.expected, got)
-			}
-		} else {
-			t.Errorf("For input %s, expected an integer result, but got %v", tc.input, result)
-		}
-	}
-}
-
-func TestDecoder_decodeList(t *testing.T) {
-	testCases := []struct {
-		name    string
-		input   string
-		want    []interface{}
-		wantErr bool
-	}{
-		{"EmptyList", "le", []interface{}{}, false},
-		{"SingleElement", "li42ee", []interface{}{42}, false},
-		{"MultipleElements", "li42e3:fooe", []interface{}{42, "foo"}, false},
-		{"NestedList", "li42eli1ei2eeli3eeli4eee", []interface{}{42, []interface{}{1, 2}, []interface{}{3}, []interface{}{4}}, false},
-		{"FullyNestedList", "li42eli1ei2eli3eli4eeeee", []interface{}{42, []interface{}{1, 2, []interface{}{3, []interface{}{4}}}}, false},
-		{"InvalidInput", "invalid", nil, true},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := bufio.NewReader(strings.NewReader(tc.input))
-			decoder := NewDecoder(r)
-
-			got, err := decoder.decodeList()
-
-			if (err != nil) != tc.wantErr {
-				t.Errorf("decodeList() error = %v, wantErr %v", err, tc.wantErr)
-				return
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
 			}
 
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("decodeList() got = %v, want %v", got, tc.want)
+			if result != tt.expected {
+				t.Errorf("Expected %d, got %d", tt.expected, result)
 			}
 		})
 	}
 }
 
-func TestDecoder_decodeString(t *testing.T) {
-	testCases := []struct {
-		name    string
-		input   string
-		want    string
-		wantErr bool
+func TestDecodeList(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected []interface{}
 	}{
-		{"EmptyString", "0:", "", false},
-		{"ShortString", "4:abcd", "abcd", false},
-		{"LongString", "11:hello world", "hello world", false},
-		{"InvalidInput", "invalid", "", true},
-		// Add more test cases as needed
+		{"li1ei2ei3ee", []interface{}{int64(1), int64(2), int64(3)}},
+		{"l1:a1:b1:ce", []interface{}{"a", "b", "c"}},
+		{"li42e4:testli1ei2eee", []interface{}{int64(42), "test", []interface{}{int64(1), int64(2)}}},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := bufio.NewReader(strings.NewReader(tc.input))
-			decoder := NewDecoder(r)
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			reader := bytes.NewReader([]byte(tt.input))
+			decoder := NewDecoder(reader)
 
-			got, err := decoder.decodeString()
+			var result []interface{}
+			err := decoder.Decode(&result)
 
-			if (err != nil) != tc.wantErr {
-				t.Errorf("decodeString() error = %v, wantErr %v", err, tc.wantErr)
-				return
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
 			}
 
-			if got != tc.want {
-				t.Errorf("decodeString() got = %v, want %v", got, tc.want)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
 		})
 	}
 }
 
-func TestDecoder_read(t *testing.T) {
-	testCases := []struct {
-		name       string
-		input      string
-		readData   []byte
-		want       int
-		wantErr    bool
-		wantErrMsg string
+func TestDecodeDictToMap(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected map[string]interface{}
 	}{
-		{"ReadEmptyData", "data", []byte{}, 0, false, ""},
-		{"ReadSomeData", "abcd", make([]byte, 2), 2, false, ""},
-		{"ReadAllData", "xyz", make([]byte, 3), 3, false, ""},
-		{"ReadMoreThanAvailableData", "123", make([]byte, 4), 3, false, "EOF"},
-		{"InvalidInput", "", make([]byte, 2), 0, true, "EOF"},
-		// Add more test cases as needed
+		{
+			"d1:ai1e1:bi2ee",
+			map[string]interface{}{"a": int64(1), "b": int64(2)},
+		},
+		{
+			"d3:numi42e4:test5:valuee",
+			map[string]interface{}{"num": int64(42), "test": "value"},
+		},
+		{
+			"d4:listli1ei2ei3ee3:str4:teste",
+			map[string]interface{}{"list": []interface{}{int64(1), int64(2), int64(3)}, "str": "test"},
+		},
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := bufio.NewReader(strings.NewReader(tc.input))
-			decoder := NewDecoder(r)
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			reader := bytes.NewReader([]byte(tt.input))
+			decoder := NewDecoder(reader)
 
-			got, err := decoder.read(tc.readData)
+			var result map[string]interface{}
+			err := decoder.Decode(&result)
 
-			if (err != nil) != tc.wantErr {
-				t.Errorf("read() error = %v, wantErr %v", err, tc.wantErr)
-				return
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
 			}
 
-			if tc.wantErr && err != nil && !strings.Contains(err.Error(), tc.wantErrMsg) {
-				t.Errorf("read() error message = %v, wantErr %v", err, tc.wantErrMsg)
-				return
-			}
-
-			if got != tc.want {
-				t.Errorf("read() got = %v, want %v", got, tc.want)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
 		})
 	}
 }
 
-func TestDecoder_readByte(t *testing.T) {
-	testCases := []struct {
-		name       string
-		input      string
-		want       byte
-		wantErr    bool
-		wantErrMsg string
-	}{
-		{"ReadByteFromEmptyInput", "", 0, true, "EOF"},
-		{"ReadFirstByte", "abc", 'a', false, ""},
-		{"ReadNextByte", "xyz", 'x', false, ""},
-		{"ReadByteFromEnd", "p", 'p', false, ""},
-		// Add more test cases as needed
+func TestDecodeDictToStruct(t *testing.T) {
+	type NestedStruct struct {
+		Value string `bencode:"value"`
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := bufio.NewReader(strings.NewReader(tc.input))
-			decoder := NewDecoder(r)
+	type TestStruct struct {
+		Name       string `bencode:"name"`
+		Age        int    `bencode:"age"`
+		Email      string `bencode:"email_address"`
+		Ignore     string `bencode:"-"`
+		Default    string
+		unexported string
+		Nested     NestedStruct      `bencode:"nested"`
+		IntSlice   []int             `bencode:"int_slice"`
+		StringMap  map[string]string `bencode:"string_map"`
+	}
 
-			got, err := decoder.readByte()
+	tests := []struct {
+		name     string
+		input    string
+		expected TestStruct
+	}{
+		{
+			name:  "Basic struct decoding",
+			input: "d4:name5:Alice3:agei20e13:email_address15:alice@email.com7:default5:valuee",
+			expected: TestStruct{
+				Name:    "Alice",
+				Age:     20,
+				Email:   "alice@email.com",
+				Default: "value",
+			},
+		},
+		{
+			name:  "Struct with missing fields",
+			input: "d4:name3:Bob3:agei25ee",
+			expected: TestStruct{
+				Name: "Bob",
+				Age:  25,
+			},
+		},
+		{
+			name:  "Struct with extra fields",
+			input: "d4:name4:Jane3:agei30e13:email_address14:jane@email.com5:extra5:field7:default6:value2e",
+			expected: TestStruct{
+				Name:    "Jane",
+				Age:     30,
+				Email:   "jane@email.com",
+				Default: "value2",
+			},
+		},
+		{
+			name:  "Struct with ignored field",
+			input: "d4:name6:Ignore3:agei40e6:ignore10:ignoreThise",
+			expected: TestStruct{
+				Name: "Ignore",
+				Age:  40,
+			},
+		},
+		{
+			name:  "Struct with nested struct",
+			input: "d4:name4:John3:agei35e6:nestedd5:value10:nestedDataee",
+			expected: TestStruct{
+				Name: "John",
+				Age:  35,
+				Nested: NestedStruct{
+					Value: "nestedData",
+				},
+			},
+		},
+		{
+			name:  "Struct with integer slice",
+			input: "d4:name3:Tom3:agei28e9:int_sliceli1ei2ei3eee",
+			expected: TestStruct{
+				Name:     "Tom",
+				Age:      28,
+				IntSlice: []int{1, 2, 3},
+			},
+		},
+		{
+			name:  "Struct with string map",
+			input: "d4:name5:Sarah3:agei32e10:string_mapd3:key5:valuee13:email_address15:sarah@email.come",
+			expected: TestStruct{
+				Name:      "Sarah",
+				Age:       32,
+				Email:     "sarah@email.com",
+				StringMap: map[string]string{"key": "value"},
+			},
+		},
+		{
+			name:     "Empty struct",
+			input:    "de",
+			expected: TestStruct{},
+		},
+		{
+			name:  "Struct with zero values",
+			input: "d4:name0:3:agei0e13:email_address0:e",
+			expected: TestStruct{
+				Name:  "",
+				Age:   0,
+				Email: "",
+			},
+		},
+		{
+			name:  "Struct with large integer",
+			input: "d4:name3:Max3:agei2147483647ee",
+			expected: TestStruct{
+				Name: "Max",
+				Age:  2147483647,
+			},
+		},
+		{
+			name:  "Struct with negative integer",
+			input: "d4:name3:Min3:agei-100ee",
+			expected: TestStruct{
+				Name: "Min",
+				Age:  -100,
+			},
+		},
+	}
 
-			if (err != nil) != tc.wantErr {
-				t.Errorf("readByte() error = %v, wantErr %v", err, tc.wantErr)
-				return
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := bytes.NewReader([]byte(tt.input))
+			decoder := NewDecoder(reader)
+
+			var result TestStruct
+			err := decoder.Decode(&result)
+
+			if err != nil {
+				t.Errorf("Unexpected error: %v", err)
 			}
 
-			if tc.wantErr && err != nil && !strings.Contains(err.Error(), tc.wantErrMsg) {
-				t.Errorf("readByte() error message = %v, wantErr %v", err, tc.wantErrMsg)
-				return
-			}
-
-			if got != tc.want {
-				t.Errorf("readByte() got = %v, want %v", got, tc.want)
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("Expected %+v, got %+v", tt.expected, result)
 			}
 		})
 	}
-}
-
-func TestDecoder_readBytes(t *testing.T) {
-	testCases := []struct {
-		name       string
-		input      string
-		delimiter  byte
-		want       []byte
-		wantErr    bool
-		wantErrMsg string
-	}{
-		{"ReadBytesFromEmptyInput", "", 'e', []byte(""), true, "EOF"},
-		{"ReadBytesUntilDelimiter", "abcd:xyz", ':', []byte("abcd:"), false, ""},
-		{"ReadBytesUntilEnd", "1234567", '6', []byte("123456"), false, ""},
-		{"ReadBytesInvalidDelimiter", "hello", 0, []byte("hello"), true, "EOF"},
-		// Add more test cases as needed
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			r := bufio.NewReader(strings.NewReader(tc.input))
-			decoder := NewDecoder(r)
-
-			got, err := decoder.readBytes(tc.delimiter)
-
-			if (err != nil) != tc.wantErr {
-				t.Errorf("readBytes() error = %v, wantErr %v", err, tc.wantErr)
-				return
-			}
-
-			if tc.wantErr && err != nil && !strings.Contains(err.Error(), tc.wantErrMsg) {
-				t.Errorf("readBytes() error message = %v, wantErr %v", err, tc.wantErrMsg)
-				return
-			}
-
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Errorf("readBytes() got = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestDecoderEncoder_DecodeEncode(t *testing.T) {
-	testData := "d6:lengthi5173995520e4:name32:ubuntu-23.10.1-desktop-amd64.iso12:piece lengthi4e6:pieces20:abcdecbcedeffdfbaaeee"
-	r := bufio.NewReader(strings.NewReader(testData))
-	decoder := NewDecoder(r)
-	decoded, err := decoder.Decode()
-	if err != nil {
-		t.Fatalf("Error encoding: %v", err)
-	}
-	got := new(bytes.Buffer)
-	encoder := NewEncoder(got)
-	err = encoder.Encode(decoded)
-	if err != nil {
-		t.Fatalf("Error encoding: %v", err)
-	}
-	fmt.Printf("\ngot = \n%v , \nwant = \n%v", got, testData)
-	//if got.String() != testData {
-	//	t.Errorf("\ngot = \n%v , \nwant = \n%v", got, testData)
-	//}
-	decoder = NewDecoder(bufio.NewReader(strings.NewReader(testData)))
-	decoded2, err := decoder.Decode()
-
-	fmt.Printf("\ndecoded = \n%v , \ndecoded2 = \n%v", decoded, decoded2)
-
-	//fmt.Printf("\ngot = \n%v , \nwant = \n%v", got, testData)
-	if !reflect.DeepEqual(decoded2, decoded) {
-		t.Errorf("\ndecoded = \n%v , \ndecoded2 = \n%v", decoded, decoded2)
-	}
-
 }
