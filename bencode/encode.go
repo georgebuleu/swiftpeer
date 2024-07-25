@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 type Encoder struct {
@@ -109,18 +110,44 @@ func (e *Encoder) encodeStruct(buf *bytes.Buffer, v reflect.Value) error {
 		if field.PkgPath != "" {
 			continue
 		}
+		fieldValue := v.Field(i)
 		key := field.Name
-		if tag := field.Tag.Get("bencode"); tag != "" {
+		tag := field.Tag.Get("bencode")
+		if tag != "" {
 			if tag == "-" {
 				continue
 			}
-			key = tag
+			parts := strings.Split(tag, ",")
+			key = parts[0]
+			if len(parts) > 1 && parts[1] == "omitempty" {
+				if isEmptyValue(fieldValue) {
+					continue
+				}
+			}
 		}
 		e.encodeString(buf, key)
-		if err := e.bencode(buf, v.Field(i)); err != nil {
+		if err := e.bencode(buf, fieldValue); err != nil {
 			return err
 		}
 	}
 	buf.WriteByte('e')
 	return nil
+}
+
+func isEmptyValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
+		return v.Len() == 0
+	case reflect.Bool:
+		return !v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return v.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return v.Float() == 0
+	case reflect.Interface, reflect.Ptr:
+		return v.IsNil()
+	}
+	return false
 }

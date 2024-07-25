@@ -238,8 +238,9 @@ func (d *Decoder) decodeDictToStruct(v reflect.Value) error {
 			// Skip this field if tag is "-"
 			continue
 		} else {
-			// Use the tag value
-			fieldMap[tag] = fieldValue
+			// Use the tag value (ignore omitempty)
+			tagParts := strings.Split(tag, ",")
+			fieldMap[tagParts[0]] = fieldValue
 		}
 	}
 
