@@ -41,7 +41,7 @@ func (e *Encoder) bencode(buf *bytes.Buffer, v reflect.Value) error {
 	case reflect.Map:
 		return e.encodeDict(buf, v)
 	case reflect.Struct:
-		e.encodeStruct(buf, v)
+		return e.encodeStruct(buf, v)
 	case reflect.Interface, reflect.Ptr:
 		if v.IsNil() {
 			return fmt.Errorf("cannot encode nil value")
