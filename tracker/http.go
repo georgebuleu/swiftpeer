@@ -73,8 +73,8 @@ func constructURL(trackerUrl string, infoHash [20]byte, port int) (string, error
 // it can return OriginalResponse type(original response type) or compactResponse
 func parseTrackerResponse(response []byte) (interface{}, error) {
 
-	fmt.Println(response)
-	decoder := bencode.NewDecoder(bytes.NewReader(response))
+	fmt.Println(string(response[:50]))
+	decoder := bencode.NewDecoder(bufio.NewReader(bytes.NewReader(response)))
 	r := bufio.NewReader(bytes.NewReader(response))
 
 	start, err := r.Peek(50)
@@ -87,8 +87,8 @@ func parseTrackerResponse(response []byte) (interface{}, error) {
 
 	if compact {
 		// Compact format
-		var resDict map[string]interface{}
-		err := decoder.Decode(resDict)
+		resDict := make(map[string]interface{})
+		err := decoder.Decode(&resDict)
 
 		if err != nil {
 			return nil, err
@@ -96,21 +96,17 @@ func parseTrackerResponse(response []byte) (interface{}, error) {
 
 		return parseCompactFormat(resDict)
 
-	}
-
-	if !compact {
+	} else {
 		// Original format
 		originalResponse := new(OriginalResponse)
 		err := decoder.Decode(originalResponse)
 		return originalResponse.Peers, err
 	}
-
-	return nil, fmt.Errorf("invalid peers field format")
 }
 
 func parseCompactFormat(resDict map[string]interface{}) (CompactResponse, error) {
 
-	interval, ok := resDict["interval"].(int)
+	interval, ok := resDict["interval"].(int64)
 	if !ok {
 		return CompactResponse{}, fmt.Errorf("invalid or missing interval field in compact response")
 	}
@@ -123,7 +119,7 @@ func parseCompactFormat(resDict map[string]interface{}) (CompactResponse, error)
 
 	return CompactResponse{
 		Peers:    peers,
-		Interval: interval,
+		Interval: int(interval),
 	}, err
 }
 

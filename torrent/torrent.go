@@ -25,6 +25,16 @@ type Torrent struct {
 		Path   string
 	}
 }
+type Info struct {
+	Pieces      string `bencode:"pieces"`
+	PieceLength int    `bencode:"piece length"`
+	Name        string `bencode:"name"`
+	Length      int    `bencode:"length"`
+	Files       []struct {
+		Length int      `bencode:"length"`
+		Path   []string `bencode:"path"`
+	} `bencode:"files"`
+}
 
 func NewTorrent() *Torrent {
 	m := metadata.NewMetadata()
@@ -86,10 +96,9 @@ func NewTorrent() *Torrent {
 
 // hashes the info dict
 func hashInfo(m *metadata.Metadata) ([HashLen]byte, error) {
-	info := m.InfoDict()
 	var buf bytes.Buffer
-	err := bencode.NewEncoder(&buf).Encode(info)
-	//fmt.Printf("\ninfo: %s\n", buf.String())
+	err := bencode.NewEncoder(&buf).Encode(m.Info)
+	fmt.Printf("\ninfo: %s\n", buf.String()[:500])
 	if err != nil {
 		return [HashLen]byte{}, err
 	}
