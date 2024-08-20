@@ -9,7 +9,7 @@ type Bitfield []byte
 //7 is used in the mask computing part because of the endianness
 //the bitfield is and array so the most significant bit is at index 0 so is little endian, but i needed big endian
 
-func (bf Bitfield) HavePiece(pieceNo int) bool {
+func (bf Bitfield) HasPiece(pieceNo int) bool {
 	byteIdx := pieceNo / 8
 	bitOffset := pieceNo % 8
 	mask := byte(1 << (7 - bitOffset))

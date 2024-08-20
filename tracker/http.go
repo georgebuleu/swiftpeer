@@ -30,8 +30,8 @@ type CompactResponse struct {
 }
 
 // it can return OriginalResponse type(original response type) or compactResponse
-func requestPeers(url string, infoHash [20]byte, port int) (interface{}, error) {
-	u, err := constructURL(url, infoHash, port)
+func requestPeers(url string, infoHash [20]byte, peerId [20]byte, port int) (interface{}, error) {
+	u, err := constructURL(url, infoHash, peerId, port)
 	if err != nil {
 		return u, err
 	}
@@ -49,7 +49,7 @@ func requestPeers(url string, infoHash [20]byte, port int) (interface{}, error) 
 	return parseTrackerResponse(b)
 }
 
-func constructURL(trackerUrl string, infoHash [20]byte, port int) (string, error) {
+func constructURL(trackerUrl string, infoHash [20]byte, peerId [20]byte, port int) (string, error) {
 
 	domain, err := url.Parse(trackerUrl)
 	if err != nil {
@@ -58,7 +58,7 @@ func constructURL(trackerUrl string, infoHash [20]byte, port int) (string, error
 
 	params := url.Values{
 		"info_hash":  []string{string(infoHash[:])},
-		"peer_id":    []string{common.PeerId[:]},
+		"peer_id":    []string{common.PeerIdToString(peerId)},
 		"port":       []string{fmt.Sprintf("%d", port)},
 		"compact":    []string{"1"},
 		"uploaded":   []string{"0"},

@@ -6,7 +6,7 @@ import (
 	"swiftpeer/client/peer"
 )
 
-func GetTorrentData(announceUrl string, announceList [][]string, port int, infoHash [20]byte, peerAddrs peer.AddrSet) error {
+func GetTorrentData(announceUrl string, announceList [][]string, port int, infoHash [20]byte, peerId [20]byte, peerAddrs peer.AddrSet) error {
 
 	var urls []string
 	if len(announceList) > 0 {
@@ -34,7 +34,7 @@ func GetTorrentData(announceUrl string, announceList [][]string, port int, infoH
 		case "udp":
 			// handle udp tracker
 			fmt.Printf("url: %v\n", u)
-			res, err := getPeersFromUDPTracker(u, infoHash, port)
+			res, err := getPeersFromUDPTracker(u, infoHash, peerId, port)
 			if err != nil {
 				fmt.Println(err.Error())
 				continue
@@ -53,7 +53,7 @@ func GetTorrentData(announceUrl string, announceList [][]string, port int, infoH
 			return nil
 		case "http", "https":
 			//handle http tracker
-			res, err := requestPeers(u.String(), infoHash, port)
+			res, err := requestPeers(u.String(), infoHash, peerId, port)
 			if err != nil {
 				fmt.Println(err.Error())
 				continue

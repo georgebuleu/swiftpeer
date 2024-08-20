@@ -55,7 +55,7 @@ func NewPeerConn(addr string, infoHash [20]byte) (*PeerConn, error) {
 }
 
 func (pc *PeerConn) doHandshake() error {
-	hs := handshake.NewHandshake(common.GetPeerIdAsBytes(common.PeerId), pc.InfoHash)
+	hs := handshake.NewHandshake(common.GeneratePeerId(), pc.InfoHash)
 	pc.Conn.SetDeadline(time.Now().Add(5 * time.Second))
 	defer pc.Conn.SetDeadline(time.Time{})
 	_, err := pc.Conn.Write(hs.Serialize())
