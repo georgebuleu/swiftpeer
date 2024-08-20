@@ -21,25 +21,28 @@ func main() {
 		fmt.Println("main: could not load torrent file")
 		return
 	}
-	err := tracker.GetTorrentData(tf.Announce, tf.AnnounceList, Port, tf.InfoHash, peers)
+	peerId := common.GeneratePeerId()
+
+	err := tracker.GetTorrentData(tf.Announce, tf.AnnounceList, Port, tf.InfoHash, peerId, peers)
 	if err != nil {
 		fmt.Println(err)
 	}
 	fmt.Printf("len peers: %v\n\n", len(peers))
-	for k, _ := range peers {
-		fmt.Println(k)
+	if len(peers) == 0 {
+		fmt.Println("main: no peers found")
 	}
-	err = DownloadFile(tf, peers, outDir)
+
+	err = DownloadFile(tf, peers, peerId, outDir)
 
 	fmt.Println()
 
 }
 
-func DownloadFile(tf *torrent.Torrent, peers peer.AddrSet, outDir string) error {
+func DownloadFile(tf *torrent.Torrent, peers peer.AddrSet, peerId [20]byte, outDir string) error {
 
 	t := &statemanager.Torrent{
 		Peers:       peers,
-		PeerID:      common.GetPeerIdAsBytes(common.PeerId),
+		PeerID:      peerId,
 		InfoHash:    tf.InfoHash,
 		PieceHashes: tf.PieceHashes,
 		PieceLength: tf.PieceLength,

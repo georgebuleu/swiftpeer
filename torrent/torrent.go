@@ -11,7 +11,6 @@ import (
 
 const HashLen = sha1.Size
 
-// Torrent TODO: add support for multiple files
 type Torrent struct {
 	Announce     string
 	AnnounceList [][]string
@@ -98,7 +97,7 @@ func NewTorrent() *Torrent {
 func hashInfo(m *metadata.Metadata) ([HashLen]byte, error) {
 	var buf bytes.Buffer
 	err := bencode.NewEncoder(&buf).Encode(m.Info)
-	fmt.Printf("\ninfo: %s\n", buf.String()[:500])
+	//fmt.Printf("\ninfo: %s\n", buf.String()[:500])
 	if err != nil {
 		return [HashLen]byte{}, err
 	}

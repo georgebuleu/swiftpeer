@@ -160,7 +160,7 @@ func (t *Torrent) startTask(peer string, pieceQueue chan *pieceTask, completed c
 	}
 
 	for pieceTask := range pieceQueue {
-		if !pc.Pieces.HavePiece(pieceTask.index) {
+		if !pc.Pieces.HasPiece(pieceTask.index) {
 			pieceQueue <- pieceTask
 			continue
 		}

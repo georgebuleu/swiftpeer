@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"swiftpeer/client/common"
 	"swiftpeer/client/peer"
 	"time"
 )
@@ -40,8 +39,8 @@ type UdpClient struct {
 	connTime time.Time
 }
 
-func getPeersFromUDPTracker(u *url.URL, infoHash [20]byte, port int) (*UdpResponse, error) {
-	client, err := NewClient(u, infoHash, port)
+func getPeersFromUDPTracker(u *url.URL, infoHash [20]byte, peerId [20]byte, port int) (*UdpResponse, error) {
+	client, err := NewClient(u, infoHash, peerId, port)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +48,7 @@ func getPeersFromUDPTracker(u *url.URL, infoHash [20]byte, port int) (*UdpRespon
 	return client.GetData()
 }
 
-func NewClient(url *url.URL, infoHash [20]byte, port int) (*UdpClient, error) {
+func NewClient(url *url.URL, infoHash [20]byte, peerId [20]byte, port int) (*UdpClient, error) {
 	udpAddr, err := net.ResolveUDPAddr(url.Scheme, url.Host)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't resolve udp addr: %v", err)
@@ -67,7 +66,7 @@ func NewClient(url *url.URL, infoHash [20]byte, port int) (*UdpClient, error) {
 		Conn:     c,
 		InfoHash: infoHash,
 		Port:     port,
-		PeerId:   common.GetPeerIdAsBytes(common.PeerId),
+		PeerId:   peerId,
 	}, nil
 }
 
