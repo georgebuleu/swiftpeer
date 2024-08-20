@@ -1,10 +1,13 @@
 package bencode
 
 import (
+	"bytes"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 type Encoder struct {
@@ -15,73 +18,136 @@ func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{w}
 }
 
-func (e *Encoder) Encode(data interface{}) error {
-	encodedData, err := e.bencode(data)
-	if err != nil {
+// Encode ignores private fields of struct
+func (e *Encoder) Encode(v interface{}) error {
+	buf := &bytes.Buffer{}
+
+	if err := e.bencode(buf, reflect.ValueOf(v)); err != nil {
 		return err
 	}
-	_, err = e.w.Write(encodedData)
+	_, err := buf.WriteTo(e.w)
 	return err
 }
 
-func (e *Encoder) bencode(data interface{}) ([]byte, error) {
-	switch data.(type) {
-	case string:
-		return e.encodeString(data.(string)), nil
-	case int:
-		return e.encodeInteger(data.(int)), nil
-	case []interface{}:
-		return e.encodeList(data.([]interface{}))
-	case map[string]interface{}:
-		return e.encodeDict(data.(map[string]interface{}))
-	default:
-		return nil, fmt.Errorf("incompatible type")
-	}
-}
-
-func (e *Encoder) encodeString(data string) []byte {
-	return []byte(fmt.Sprintf("%d:%s", len(data), data))
-}
-
-func (e *Encoder) encodeInteger(data int) []byte {
-	return []byte("i" + strconv.Itoa(data) + "e")
-}
-
-func (e *Encoder) encodeList(data []interface{}) ([]byte, error) {
-	encodedBytes := make([]byte, 0)
-	encodedBytes = append(encodedBytes, "l"...)
-	for _, val := range data {
-		tmp, err := e.bencode(val)
-		if err != nil {
-			return nil, err
+func (e *Encoder) bencode(buf *bytes.Buffer, v reflect.Value) error {
+	switch v.Kind() {
+	case reflect.String:
+		e.encodeString(buf, v.String())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		e.encodeInt(buf, v.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		e.encodeUint(buf, v.Uint())
+	case reflect.Array, reflect.Slice:
+		return e.encodeList(buf, v)
+	case reflect.Map:
+		return e.encodeDict(buf, v)
+	case reflect.Struct:
+		return e.encodeStruct(buf, v)
+	case reflect.Interface, reflect.Ptr:
+		if v.IsNil() {
+			return fmt.Errorf("cannot encode nil value")
 		}
-		encodedBytes = append(encodedBytes, tmp...)
+		return e.bencode(buf, v.Elem())
+	default:
+		return fmt.Errorf("incompatible type: %T", v.Type())
 	}
-	encodedBytes = append(encodedBytes, "e"...)
-	return encodedBytes, nil
+	return nil
 }
 
-func (e *Encoder) encodeDict(data map[string]interface{}) ([]byte, error) {
-	encodedBytes := make([]byte, 0)
-	encodedBytes = append(encodedBytes, "d"...)
-	keys := make([]string, 0, len(data))
-	for key := range data {
-		keys = append(keys, key)
-	}
+func (e *Encoder) encodeString(buf *bytes.Buffer, s string) {
+	buf.WriteString(strconv.Itoa(len(s)))
+	buf.WriteByte(':')
+	buf.WriteString(s)
+}
 
-	sort.Strings(keys)
+func (e *Encoder) encodeInt(buf *bytes.Buffer, i int64) {
+	buf.WriteByte('i')
+	buf.WriteString(strconv.FormatInt(i, 10))
+	buf.WriteByte('e')
+}
+
+func (e *Encoder) encodeUint(buf *bytes.Buffer, u uint64) {
+	buf.WriteByte('i')
+	buf.WriteString(strconv.FormatUint(u, 10))
+	buf.WriteByte('e')
+}
+
+func (e *Encoder) encodeList(buf *bytes.Buffer, v reflect.Value) error {
+	buf.WriteByte('l')
+	for i := 0; i < v.Len(); i++ {
+		if err := e.bencode(buf, v.Index(i)); err != nil {
+			return err
+		}
+	}
+	buf.WriteByte('e')
+	return nil
+}
+
+func (e *Encoder) encodeDict(buf *bytes.Buffer, v reflect.Value) error {
+
+	buf.WriteByte('d')
+	keys := v.MapKeys()
+
+	sort.Slice(keys, func(i, j int) bool {
+		return keys[i].String() < keys[j].String()
+	})
 
 	for _, key := range keys {
-		{
-			encodedBytes = append(encodedBytes, e.encodeString(key)...)
-
-			encodedVal, err := e.bencode(data[key])
-			if err != nil {
-				return nil, err
-			}
-			encodedBytes = append(encodedBytes, encodedVal...)
+		e.encodeString(buf, key.String())
+		if err := e.bencode(buf, v.MapIndex(key)); err != nil {
+			return err
 		}
 	}
-	encodedBytes = append(encodedBytes, "e"...)
-	return encodedBytes, nil
+	buf.WriteByte('e')
+	return nil
+}
+
+func (e *Encoder) encodeStruct(buf *bytes.Buffer, v reflect.Value) error {
+	buf.WriteByte('d')
+	t := v.Type()
+	for i := 0; i < v.NumField(); i++ {
+		field := t.Field(i)
+		if field.PkgPath != "" {
+			continue
+		}
+		fieldValue := v.Field(i)
+		key := field.Name
+		tag := field.Tag.Get("bencode")
+		if tag != "" {
+			if tag == "-" {
+				continue
+			}
+			parts := strings.Split(tag, ",")
+			key = parts[0]
+			if len(parts) > 1 && parts[1] == "omitempty" {
+				if isEmptyValue(fieldValue) {
+					continue
+				}
+			}
+		}
+		e.encodeString(buf, key)
+		if err := e.bencode(buf, fieldValue); err != nil {
+			return err
+		}
+	}
+	buf.WriteByte('e')
+	return nil
+}
+
+func isEmptyValue(v reflect.Value) bool {
+	switch v.Kind() {
+	case reflect.Array, reflect.Map, reflect.Slice, reflect.String:
+		return v.Len() == 0
+	case reflect.Bool:
+		return !v.Bool()
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return v.Int() == 0
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		return v.Uint() == 0
+	case reflect.Float32, reflect.Float64:
+		return v.Float() == 0
+	case reflect.Interface, reflect.Ptr:
+		return v.IsNil()
+	}
+	return false
 }

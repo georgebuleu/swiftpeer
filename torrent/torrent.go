@@ -25,6 +25,16 @@ type Torrent struct {
 		Path   string
 	}
 }
+type Info struct {
+	Pieces      string `bencode:"pieces"`
+	PieceLength int    `bencode:"piece length"`
+	Name        string `bencode:"name"`
+	Length      int    `bencode:"length"`
+	Files       []struct {
+		Length int      `bencode:"length"`
+		Path   []string `bencode:"path"`
+	} `bencode:"files"`
+}
 
 func NewTorrent() *Torrent {
 	m := metadata.NewMetadata()
@@ -44,31 +54,31 @@ func NewTorrent() *Torrent {
 		fmt.Printf("torrent: %v", err)
 		return nil
 	}
-	if len(m.Files) == 0 && m.Length == 0 {
+	if len(m.Info.Files) == 0 && m.Info.Length == 0 {
 		fmt.Printf("torrent: no length or files\n")
 	}
 
 	t := &Torrent{
 		Announce:     m.Announce,
 		AnnounceList: m.AnnounceList,
-		Name:         m.Name,
-		PieceLength:  m.PieceLength,
+		Name:         m.Info.Name,
+		PieceLength:  m.Info.PieceLength,
 		InfoHash:     infoHash,
 		PieceHashes:  pieceHashes,
 	}
 
-	if m.Length != 0 {
+	if m.Info.Length != 0 {
 		t.Files = append(t.Files, struct {
 			Length int
 			Path   string
 		}{
-			Length: m.Length,
-			Path:   m.Name,
+			Length: m.Info.Length,
+			Path:   m.Info.Name,
 		})
-		t.TotalLength = m.Length
+		t.TotalLength = m.Info.Length
 	} else {
-		for _, file := range m.Files {
-			paths := append([]string{m.Name}, file.Path...)
+		for _, file := range m.Info.Files {
+			paths := append([]string{m.Info.Name}, file.Path...)
 			t.Files = append(t.Files, struct {
 				Length int
 				Path   string
@@ -86,10 +96,9 @@ func NewTorrent() *Torrent {
 
 // hashes the info dict
 func hashInfo(m *metadata.Metadata) ([HashLen]byte, error) {
-	info := m.InfoDict()
 	var buf bytes.Buffer
-	err := bencode.NewEncoder(&buf).Encode(info)
-	//fmt.Printf("\ninfo: %s\n", buf.String())
+	err := bencode.NewEncoder(&buf).Encode(m.Info)
+	fmt.Printf("\ninfo: %s\n", buf.String()[:500])
 	if err != nil {
 		return [HashLen]byte{}, err
 	}
@@ -100,7 +109,7 @@ func hashInfo(m *metadata.Metadata) ([HashLen]byte, error) {
 }
 
 func splitPieces(m *metadata.Metadata) ([][HashLen]byte, error) {
-	pieces := []byte(m.Pieces)
+	pieces := []byte(m.Info.Pieces)
 
 	if len(pieces)%sha1.Size != 0 {
 		return nil, fmt.Errorf("invalid pieces length")

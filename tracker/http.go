@@ -2,11 +2,11 @@ package tracker
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"swiftpeer/client/bencode"
 	"swiftpeer/client/common"
 	"swiftpeer/client/peer"
@@ -46,7 +46,7 @@ func requestPeers(url string, infoHash [20]byte, port int) (interface{}, error) 
 	if err != nil {
 		return "", err
 	}
-	return parseTrackerResponse(string(b))
+	return parseTrackerResponse(b)
 }
 
 func constructURL(trackerUrl string, infoHash [20]byte, port int) (string, error) {
@@ -71,96 +71,42 @@ func constructURL(trackerUrl string, infoHash [20]byte, port int) (string, error
 }
 
 // it can return OriginalResponse type(original response type) or compactResponse
-func parseTrackerResponse(response string) (interface{}, error) {
+func parseTrackerResponse(response []byte) (interface{}, error) {
 
-	fmt.Println(response)
-	decodedResponse, err := bencode.NewDecoder(bufio.NewReader(strings.NewReader(response))).Decode()
+	fmt.Println(string(response[:50]))
+	decoder := bencode.NewDecoder(bufio.NewReader(bytes.NewReader(response)))
+	r := bufio.NewReader(bytes.NewReader(response))
+
+	start, err := r.Peek(50)
+
 	if err != nil {
 		return nil, err
 	}
 
-	data, ok := decodedResponse.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("invalid format")
-	}
+	compact := bytes.Contains(start, []byte(`5:peers`))
 
-	if _, ok := data["peers"].(string); ok {
+	if compact {
 		// Compact format
-		return parseCompactFormat(response)
-	}
+		resDict := make(map[string]interface{})
+		err := decoder.Decode(&resDict)
 
-	if _, ok := data["peers"].([]interface{}); ok {
-		// Original format
-		return parseOriginalFormat(data)
-	}
-
-	return nil, fmt.Errorf("invalid peers field format")
-}
-
-func parseOriginalFormat(data map[string]interface{}) (OriginalResponse, error) {
-	var trackerResponse OriginalResponse
-
-	if interval, ok := data["interval"].(int); ok {
-		trackerResponse.Interval = interval
-	} else {
-		return trackerResponse, fmt.Errorf("invalid interval field")
-	}
-
-	if complete, ok := data["complete"].(int); ok {
-		trackerResponse.Complete = complete
-	}
-
-	if incomplete, ok := data["incomplete"].(int); ok {
-		trackerResponse.Incomplete = incomplete
-	}
-
-	if peersList, ok := data["peers"].([]interface{}); ok {
-		var peers []peer.Peer
-		for _, p := range peersList {
-			peerMap, ok := p.(map[string]interface{})
-			if !ok {
-				return trackerResponse, fmt.Errorf("invalid peer entry")
-			}
-
-			ip, ipOk := peerMap["ip"].(string)
-			port, portOk := peerMap["port"].(int)
-			peerID, peerIDOk := peerMap["peer_id"].(string)
-
-			if !ipOk || !portOk {
-				return trackerResponse, fmt.Errorf("invalid peer entry fields")
-			}
-
-			if !peerIDOk {
-				peerID = ""
-			}
-
-			peers = append(peers, peer.Peer{
-				IP:     ip,
-				Port:   port,
-				PeerId: peerID,
-			})
+		if err != nil {
+			return nil, err
 		}
-		trackerResponse.Peers = peers
-	} else {
-		return trackerResponse, fmt.Errorf("invalid peers field")
-	}
 
-	return trackerResponse, nil
+		return parseCompactFormat(resDict)
+
+	} else {
+		// Original format
+		originalResponse := new(OriginalResponse)
+		err := decoder.Decode(originalResponse)
+		return originalResponse.Peers, err
+	}
 }
 
-func parseCompactFormat(response string) (CompactResponse, error) {
+func parseCompactFormat(resDict map[string]interface{}) (CompactResponse, error) {
 
-	decodedRes, err := bencode.NewDecoder(bufio.NewReader(strings.NewReader(response))).Decode()
-	if err != nil {
-		return CompactResponse{}, err
-	}
-
-	resDict, ok := decodedRes.(map[string]interface{})
-	if !ok {
-		return CompactResponse{}, fmt.Errorf("invalid compact response format")
-	}
-
-	interval, ok := resDict["interval"].(int)
+	interval, ok := resDict["interval"].(int64)
 	if !ok {
 		return CompactResponse{}, fmt.Errorf("invalid or missing interval field in compact response")
 	}
@@ -173,8 +119,8 @@ func parseCompactFormat(response string) (CompactResponse, error) {
 
 	return CompactResponse{
 		Peers:    peers,
-		Interval: interval,
-	}, nil
+		Interval: int(interval),
+	}, err
 }
 
 func parseCompactPeers(compactPeers string) ([]peer.Peer, error) {
