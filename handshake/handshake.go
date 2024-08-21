@@ -44,8 +44,8 @@ func (h *Handshake) Deserialize(r io.Reader) (*Handshake, error) {
 	}
 	pstrLen := int(headerByte[0])
 
-	if pstrLen == 0 {
-		return nil, fmt.Errorf("invalid header: handshake length cannot be zero")
+	if pstrLen == 0 || pstrLen != len(pstr) {
+		return nil, fmt.Errorf("invalid header: invalid pstrlen, got %d, expected 19", pstrLen)
 	}
 
 	bodyBuff := make([]byte, pstrLen+48) //handshake size (in bytes) - 1 byte from the header, already consumed
