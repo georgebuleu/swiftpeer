@@ -62,7 +62,7 @@ func Read(r io.Reader) (*Message, error) {
 	}
 
 	length := binary.BigEndian.Uint32(lengthBuff)
-
+	//length is 0 for keep alive message and has no id or payload
 	if length == 0 {
 		return nil, nil
 	}
@@ -73,10 +73,17 @@ func Read(r io.Reader) (*Message, error) {
 		fmt.Printf("Error while reading the message: %v\n", err.Error())
 		return nil, err
 	}
-
-	m := Message{
-		Id:      messageId(message[0]),
-		Payload: message[1:],
+	var m Message
+	if len(message[1:]) == 0 {
+		m = Message{
+			Id:      messageId(message[0]),
+			Payload: nil,
+		}
+	} else {
+		m = Message{
+			Id:      messageId(message[0]),
+			Payload: message[1:],
+		}
 	}
 
 	//fmt.Printf("received message type: %v\n", m.Name())
