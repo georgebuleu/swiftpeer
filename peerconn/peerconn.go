@@ -1,133 +1,153 @@
 package peerconn
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"swiftpeer/client/bitfield"
-	"swiftpeer/client/common"
 	"swiftpeer/client/handshake"
 	"swiftpeer/client/message"
 	"time"
 )
 
+const (
+	writeTimeout = 3 * time.Second
+	readTimeout  = 30 * time.Second
+	dialTimeout  = 5 * time.Second
+	maxTimeouts  = 8
+)
+
 type PeerConn struct {
-	Conn     net.Conn
-	Addr     string
-	InfoHash [20]byte
-	IsChoked bool
-	Pieces   bitfield.Bitfield
+	conn           net.Conn
+	reader         *bufio.Reader
+	writer         *bufio.Writer
+	Choked         bool
+	Interested     bool
+	PeerChoked     bool
+	PeerInterested bool
+	Bitfield       bitfield.Bitfield
+	Addr           string
+	PeerID         [20]byte //remote peer id
+	timeoutCount   int
 }
 
-func NewPeerConn(addr string, infoHash [20]byte) (*PeerConn, error) {
-	//address, err := addr.FormatAddress()
-	//if err != nil {
-	//	return nil, err
-	//}
-	conn, err := net.DialTimeout("tcp", addr, time.Second*3)
-
+func NewPeerConn(addr string, infoHash [20]byte, clientID [20]byte) (*PeerConn, error) {
+	conn, err := net.DialTimeout("tcp", addr, dialTimeout)
 	if err != nil {
-
-		return nil, fmt.Errorf("Failed to connect to  %v. %v\n", addr, err.Error())
+		return nil, fmt.Errorf("failed to connect to peer %s: %w", addr, err)
 	}
 
-	pc := &PeerConn{
-		Conn:     conn,
-		Addr:     addr,
-		InfoHash: infoHash,
-		IsChoked: true,
-		Pieces:   bitfield.Bitfield{},
+	p := &PeerConn{
+		conn:   conn,
+		reader: bufio.NewReader(conn),
+		writer: bufio.NewWriter(conn),
+		Choked: true,
+		Addr:   addr,
 	}
 
-	err = pc.doHandshake()
+	err = p.performHandshake(infoHash, clientID)
 	if err != nil {
 		conn.Close()
-		return nil, err
+		return nil, fmt.Errorf("handshake failed with peer %s: %w", addr, err)
 	}
 
-	err = pc.receiveBitfield()
-	if err != nil {
-		conn.Close()
-		return nil, err
-	}
-
-	return pc, nil
+	return p, nil
 }
 
-func (pc *PeerConn) doHandshake() error {
-	hs := handshake.NewHandshake(common.GeneratePeerId(), pc.InfoHash)
-	pc.Conn.SetDeadline(time.Now().Add(5 * time.Second))
-	defer pc.Conn.SetDeadline(time.Time{})
-	_, err := pc.Conn.Write(hs.Serialize())
+func (pc *PeerConn) performHandshake(infoHash [20]byte, ourPeerID [20]byte) error {
+	hs := handshake.NewHandshake(infoHash, ourPeerID)
+	err := pc.writeMessage(hs.Serialize())
 	if err != nil {
-		return fmt.Errorf("failed to send handshake with %v : %v", pc.Conn.RemoteAddr(), err)
+		return fmt.Errorf("failed to send handshake: %w", err)
 	}
-	response, err := hs.Deserialize(io.Reader(pc.Conn))
+
+	pc.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	resp, err := hs.Deserialize(pc.reader)
 	if err != nil {
-		if err != io.EOF {
-			return fmt.Errorf("Failed to READ: %v\n", err.Error())
-		} else {
-			return fmt.Errorf("peer closed the connection")
+		return fmt.Errorf("failed to receive handshake: %w", err)
+	}
+
+	if resp.InfoHash != infoHash {
+		return fmt.Errorf("infohash mismatch")
+	}
+
+	pc.PeerID = resp.PeerId
+	return nil
+}
+
+func (pc *PeerConn) ReadMessage() (*message.Message, error) {
+	pc.conn.SetReadDeadline(time.Now().Add(readTimeout))
+	msg, err := message.Read(pc.reader)
+	if err != nil {
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			pc.timeoutCount++
+			if pc.timeoutCount > maxTimeouts {
+				return nil, fmt.Errorf("too many consecutive timeouts")
+			}
+			return nil, err
 		}
+		// Reset timeout count for non-timeout errors
+		pc.timeoutCount = 0
+		return nil, err
 	}
-	if hs.InfoHash != response.InfoHash {
-
-		return fmt.Errorf("different info_hash during handshake")
-	}
-	fmt.Printf("Successfuly connected to: %v\n", pc.Conn.LocalAddr())
-	return nil
+	// Reset timeout count due to successful read
+	pc.timeoutCount = 0
+	return msg, nil
 }
 
-func (pc *PeerConn) receiveBitfield() error {
-	pc.Conn.SetDeadline(time.Now().Add(5 * time.Second))
-	defer pc.Conn.SetDeadline(time.Time{})
-
-	msg, err := message.Read(pc.Conn)
+func (pc *PeerConn) writeMessage(data []byte) error {
+	pc.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
+	_, err := pc.writer.Write(data)
 	if err != nil {
 		return err
 	}
-
-	if msg.Id != message.BitfieldMsg {
-		return fmt.Errorf("expected bitdfield msg but got: %v", msg.Name())
-	}
-
-	pc.Pieces = msg.Payload
-	return nil
+	return pc.writer.Flush()
 }
 
-func (pc *PeerConn) SendRequestMsg(pieceIndex, offset, length int) error {
-
-	m, err := message.NewRequest(pieceIndex, offset, length)
+func (pc *PeerConn) SendRequest(index, begin, length int) error {
+	req, err := message.NewRequest(index, begin, length)
 	if err != nil {
 		return err
 	}
-	_, err = pc.Conn.Write(m.Serialize())
-	return err
+	return pc.writeMessage(req.Serialize())
 }
 
 func (pc *PeerConn) SendInterested() error {
-	_, err := pc.Conn.Write(message.NewInterested().Serialize())
-	return err
+	msg := message.NewInterested()
+	err := pc.writeMessage(msg.Serialize())
+	if err != nil {
+		return err
+	}
+	pc.Interested = true
+	return nil
 }
 
 func (pc *PeerConn) SendNotInterested() error {
-	_, err := pc.Conn.Write(message.NewNotInterested().Serialize())
-	return err
-}
-
-func (pc *PeerConn) SendUnchoke() error {
-	_, err := pc.Conn.Write(message.NewUnchoke().Serialize())
-	return err
+	msg := message.NewNotInterested()
+	err := pc.writeMessage(msg.Serialize())
+	if err != nil {
+		return err
+	}
+	pc.Interested = false
+	return nil
 }
 
 func (pc *PeerConn) SendHave(index int) error {
-	_, err := pc.Conn.Write(message.NewHave(index).Serialize())
-	return err
+	msg := message.NewHave(index)
+	return pc.writeMessage(msg.Serialize())
 }
 
-func (pc *PeerConn) Read() (*message.Message, error) {
-	if pc == nil {
-		return nil, fmt.Errorf("error:connection closed")
-	}
-	return message.Read(pc.Conn)
+func (pc *PeerConn) SendBitfield(bitfield []byte) error {
+	msg := message.NewBitfield(bitfield)
+	return pc.writeMessage(msg.Serialize())
+}
+
+func (pc *PeerConn) SendKeepAlive() error {
+	return pc.writeMessage(message.NewKeepAlive().Serialize())
+}
+
+func (pc *PeerConn) Close() error {
+	return pc.conn.Close()
 }
