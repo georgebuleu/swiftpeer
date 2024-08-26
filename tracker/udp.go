@@ -12,189 +12,202 @@ import (
 const (
 	connectAction  = 0
 	announceAction = 1
-)
 
-const (
-	// magic constant
-	protocolId           = 0x41727101980
+	protocolID           = 0x41727101980
 	connPacketSize       = 16
 	announceReqSize      = 98
 	maxRetries           = 1
-	minRetries           = 0
-	connIdExpirationTime = 60 * time.Second
+	connIDExpirationTime = 60 * time.Second
 )
 
-type UdpResponse struct {
-	Interval int
-	Leechers int
-	Peers    []peer.Peer
-}
-
-type UdpClient struct {
-	Conn     *net.UDPConn
-	InfoHash [20]byte
-	Port     int
-	PeerId   [20]byte
-	connId   uint64
+type UdpTracker struct {
+	url      *url.URL
+	conn     *net.UDPConn
+	connID   uint64
 	connTime time.Time
 }
 
-func getPeersFromUDPTracker(u *url.URL, infoHash [20]byte, peerId [20]byte, port int) (*UdpResponse, error) {
-	client, err := NewClient(u, infoHash, peerId, port)
+func NewUdpTracker(trackerURL string) (Tracker, error) {
+	u, err := url.Parse(trackerURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tracker URL: %w", err)
+	}
+	return &UdpTracker{url: u}, nil
+}
+
+func (t *UdpTracker) Announce(infoHash [20]byte, peerID [20]byte, port int) ([]peer.Peer, error) {
+	if err := t.ensureConnection(); err != nil {
+		return nil, fmt.Errorf("failed to establish connection: %w", err)
+	}
+
+	response, err := t.sendAnnounceRequest(infoHash, peerID, port)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send announce request: %w", err)
+	}
+
+	return response.Peers, nil
+}
+
+func (t *UdpTracker) ensureConnection() error {
+	if t.conn == nil || time.Since(t.connTime) > connIDExpirationTime {
+		if err := t.connect(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *UdpTracker) connect() error {
+	udpAddr, err := net.ResolveUDPAddr("udp", t.url.Host)
+	if err != nil {
+		return fmt.Errorf("couldn't resolve UDP address: %w", err)
+	}
+
+	conn, err := net.DialUDP("udp", nil, udpAddr)
+	if err != nil {
+		return fmt.Errorf("failed to dial UDP: %w", err)
+	}
+
+	if err := conn.SetReadBuffer(2048); err != nil {
+		conn.Close()
+		return fmt.Errorf("failed to set UDP read buffer: %w", err)
+	}
+
+	t.conn = conn
+
+	transactionID := uint32(time.Now().UnixNano())
+	req := t.buildConnectRequest(transactionID)
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		t.conn.SetDeadline(time.Now().Add(15 * time.Second * (1 << attempt)))
+
+		if err := t.sendAndReceive(req, connPacketSize, func(resp []byte) error {
+			return t.handleConnectResponse(resp, transactionID)
+		}); err == nil {
+			t.connTime = time.Now()
+			return nil
+		}
+	}
+
+	return fmt.Errorf("failed to connect after %d attempts", maxRetries+1)
+}
+
+func (t *UdpTracker) buildConnectRequest(transactionID uint32) []byte {
+	req := make([]byte, connPacketSize)
+	binary.BigEndian.PutUint64(req[:8], protocolID)
+	binary.BigEndian.PutUint32(req[8:12], connectAction)
+	binary.BigEndian.PutUint32(req[12:16], transactionID)
+	return req
+}
+
+func (t *UdpTracker) handleConnectResponse(resp []byte, transactionID uint32) error {
+	if len(resp) != connPacketSize {
+		return fmt.Errorf("invalid packet size, expected %v, got %v", connPacketSize, len(resp))
+	}
+
+	if action := binary.BigEndian.Uint32(resp[:4]); action != connectAction {
+		return fmt.Errorf("invalid action: expected %d, got %d", connectAction, action)
+	}
+
+	if respTransactionID := binary.BigEndian.Uint32(resp[4:8]); respTransactionID != transactionID {
+		return fmt.Errorf("transaction ID mismatch: expected %d, got %d", transactionID, respTransactionID)
+	}
+
+	t.connID = binary.BigEndian.Uint64(resp[8:])
+	return nil
+}
+
+func (t *UdpTracker) sendAnnounceRequest(infoHash [20]byte, peerID [20]byte, port int) (*UdpResponse, error) {
+	transactionID := uint32(time.Now().UnixNano())
+	req := t.buildAnnounceRequest(transactionID, infoHash, peerID, port)
+
+	var response UdpResponse
+	err := t.sendAndReceive(req, 20, func(resp []byte) error {
+		return t.handleAnnounceResponse(resp, transactionID, &response)
+	})
+
 	if err != nil {
 		return nil, err
 	}
 
-	return client.GetData()
+	return &response, nil
 }
 
-func NewClient(url *url.URL, infoHash [20]byte, peerId [20]byte, port int) (*UdpClient, error) {
-	udpAddr, err := net.ResolveUDPAddr(url.Scheme, url.Host)
-	if err != nil {
-		return nil, fmt.Errorf("couldn't resolve udp addr: %v", err)
-	}
-	c, err := net.DialUDP("udp", nil, udpAddr)
-
-	if err != nil {
-		return nil, fmt.Errorf("while dialing udp tracker: %v", err)
-	}
-	err = c.SetReadBuffer(2048)
-	if err != nil {
-		return nil, fmt.Errorf("upd read buffer: %v", err)
-	}
-	return &UdpClient{
-		Conn:     c,
-		InfoHash: infoHash,
-		Port:     port,
-		PeerId:   peerId,
-	}, nil
+func (t *UdpTracker) buildAnnounceRequest(transactionID uint32, infoHash [20]byte, peerID [20]byte, port int) []byte {
+	req := make([]byte, announceReqSize)
+	binary.BigEndian.PutUint64(req[:8], t.connID)
+	binary.BigEndian.PutUint32(req[8:12], announceAction)
+	binary.BigEndian.PutUint32(req[12:16], transactionID)
+	copy(req[16:36], infoHash[:])
+	copy(req[36:56], peerID[:])
+	binary.BigEndian.PutUint64(req[56:64], 0)          // downloaded
+	binary.BigEndian.PutUint64(req[64:72], 0)          // left
+	binary.BigEndian.PutUint64(req[72:80], 0)          // uploaded
+	binary.BigEndian.PutUint32(req[80:84], 0)          // event
+	binary.BigEndian.PutUint32(req[84:88], 0)          // IP address
+	binary.BigEndian.PutUint32(req[88:92], 0)          // key
+	binary.BigEndian.PutUint32(req[92:96], 0xFFFFFFFF) // num_want
+	binary.BigEndian.PutUint16(req[96:98], uint16(port))
+	return req
 }
 
-func (client *UdpClient) GetData() (*UdpResponse, error) {
-	var err error
-	for n := 0; n <= maxRetries; n++ {
-		client.Conn.SetDeadline(time.Now().Add(15 * (1 << n) * time.Second))
-		err = client.connect()
-		if err == nil {
-			client.Conn.SetDeadline(time.Time{})
-			break
-		}
-		if n == maxRetries {
-			return nil, fmt.Errorf("max retries reached for connect: %v", err)
-		}
+func (t *UdpTracker) handleAnnounceResponse(resp []byte, transactionID uint32, response *UdpResponse) error {
+	if len(resp) < 20 {
+		return fmt.Errorf("response too short: %d bytes", len(resp))
 	}
 
-	r := new(UdpResponse)
-	for n := 0; n <= maxRetries; n++ {
-
-		if time.Since(client.connTime) > connIdExpirationTime {
-			client.Conn.SetDeadline(time.Now().Add(time.Second * 5))
-			err = client.connect()
-			if err != nil {
-				return nil, fmt.Errorf("failed to reconnect: %v", err)
-			}
-		}
-		client.Conn.SetDeadline(time.Now().Add(15 * (1 << n) * time.Second))
-		err = client.requestData(r)
-		if err == nil {
-			client.Conn.SetDeadline(time.Time{})
-			break
-		}
-		if n == maxRetries {
-			return nil, fmt.Errorf("max retries reached for announce: %v", err)
-		}
+	if action := binary.BigEndian.Uint32(resp[0:4]); action != announceAction {
+		return fmt.Errorf("invalid action: expected %d, got %d", announceAction, action)
 	}
 
-	return r, nil
-}
-
-func (client *UdpClient) connect() error {
-
-	transactionId := uint32(time.Now().UnixNano())
-	req := make([]byte, connPacketSize)
-	binary.BigEndian.PutUint64(req[:8], protocolId)
-	binary.BigEndian.PutUint32(req[8:12], connectAction)
-	binary.BigEndian.PutUint32(req[12:16], transactionId)
-
-	_, err := client.Conn.Write(req)
-
-	if err != nil {
-		return err
+	if respTransactionID := binary.BigEndian.Uint32(resp[4:8]); respTransactionID != transactionID {
+		return fmt.Errorf("transaction ID mismatch: expected %d, got %d", transactionID, respTransactionID)
 	}
 
-	if len(req) != connPacketSize {
-		return fmt.Errorf("missing data while creating connection")
-	}
+	response.Interval = int(binary.BigEndian.Uint32(resp[8:12]))
+	response.Leechers = int(binary.BigEndian.Uint32(resp[12:16]))
+	//
 
-	resp := make([]byte, connPacketSize)
-	_, err = client.Conn.Read(resp)
-	if err != nil {
-		return err
-	}
-
-	if len(resp) != connPacketSize {
-		return fmt.Errorf("invalid packte size, expected %v, got %v", connPacketSize, len(resp))
-	}
-
-	if binary.BigEndian.Uint32(resp[:4]) != connectAction {
-		return fmt.Errorf("invalid action")
-	}
-
-	if binary.BigEndian.Uint32(resp[4:8]) != transactionId {
-		return fmt.Errorf("transaction Id mismatch")
-	}
-	client.connTime = time.Now()
-	client.connId = binary.BigEndian.Uint64(resp[8:])
+	response.Peers = t.parsePeers(resp[20:])
 	return nil
 }
 
-func (client *UdpClient) requestData(data *UdpResponse) error {
+func (t *UdpTracker) parsePeers(data []byte) []peer.Peer {
+	peerCount := len(data) / 6
+	peers := make([]peer.Peer, 0, peerCount)
 
-	transactionId := uint32(time.Now().UnixNano())
-	req := make([]byte, announceReqSize)
-
-	binary.BigEndian.PutUint64(req[:8], client.connId)
-	binary.BigEndian.PutUint32(req[8:12], announceAction)
-	binary.BigEndian.PutUint32(req[12:16], transactionId)
-	copy(req[16:], client.InfoHash[:])
-	copy(req[36:], client.PeerId[:])
-	binary.BigEndian.PutUint64(req[56:], 0)                   //downloaded
-	binary.BigEndian.PutUint64(req[64:], 0)                   //left
-	binary.BigEndian.PutUint64(req[72:], 0)                   //uploaded
-	binary.BigEndian.PutUint32(req[80:], 0)                   //event
-	binary.BigEndian.PutUint32(req[84:], 0)                   //ip address
-	binary.BigEndian.PutUint32(req[88:], 0)                   //key
-	binary.BigEndian.PutUint32(req[92:], 0xFFFFFFFF)          //num_want
-	binary.BigEndian.PutUint16(req[96:], uint16(client.Port)) //port
-
-	_, err := client.Conn.Write(req)
-
-	resp := make([]byte, 2048) //TODO: find a better default size
-	n, err := client.Conn.Read(resp)
-	resp = resp[:n]
-	if len(resp) < 20 {
-		return err
-	}
-	if binary.BigEndian.Uint32(resp[0:4]) != announceAction {
-		return fmt.Errorf("invalid action")
-	}
-
-	if binary.BigEndian.Uint32(resp[4:8]) != transactionId {
-		return fmt.Errorf("transactionId mismatch")
-	}
-
-	data.Interval = int(binary.BigEndian.Uint32(resp[8:12]))  //interval
-	data.Leechers = int(binary.BigEndian.Uint32(resp[12:16])) //leechers
-	_ = binary.BigEndian.Uint32(resp[16:20])                  //seeders
-
-	var peers []peer.Peer
-
-	for i := 20; i+6 < len(resp); i += 6 {
+	for i := 0; i < peerCount; i++ {
+		offset := i * 6
 		peers = append(peers, peer.Peer{
-			IP:   fmt.Sprintf("%d.%d.%d.%d", resp[i], resp[i+1], resp[i+2], resp[i+3]),
-			Port: int(binary.BigEndian.Uint16(resp[i+4 : i+6])),
+			IP:   fmt.Sprintf("%d.%d.%d.%d", data[offset], data[offset+1], data[offset+2], data[offset+3]),
+			Port: int(binary.BigEndian.Uint16(data[offset+4 : offset+6])),
 		})
 	}
-	data.Peers = peers
+
+	return peers
+}
+
+func (t *UdpTracker) sendAndReceive(req []byte, minRespSize int, handler func([]byte) error) error {
+	if _, err := t.conn.Write(req); err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+
+	resp := make([]byte, 2048)
+	n, err := t.conn.Read(resp)
+	if err != nil {
+		return fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if n < minRespSize {
+		return fmt.Errorf("response too short: got %d bytes, expected at least %d", n, minRespSize)
+	}
+
+	return handler(resp[:n])
+}
+
+func (t *UdpTracker) Close() error {
+	if t.conn != nil {
+		return t.conn.Close()
+	}
 	return nil
 }

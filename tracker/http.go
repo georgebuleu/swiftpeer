@@ -12,118 +12,115 @@ import (
 	"swiftpeer/client/peer"
 )
 
-type OriginalResponse struct {
-	FailureReason  string
-	WarningMessage string
-	Interval       int
-	MinInterval    int
-	TrackerID      string
-	Complete       int
-	Incomplete     int
-	Event          string
-	Peers          []peer.Peer
+type HTTPTracker struct {
+	baseUrl string
 }
 
-type CompactResponse struct {
-	Interval int
-	Peers    []peer.Peer
+func NewHTTPTracker(baseUrl string) *HTTPTracker {
+	return &HTTPTracker{baseUrl: baseUrl}
 }
 
 // it can return OriginalResponse type(original response type) or compactResponse
-func requestPeers(url string, infoHash [20]byte, peerId [20]byte, port int) (interface{}, error) {
-	u, err := constructURL(url, infoHash, peerId, port)
+func (t *HTTPTracker) Announce(infoHash [20]byte, peerID [20]byte, port int) ([]peer.Peer, error) {
+	announceURL, err := t.buildAnnounceURL(infoHash, peerID, port)
 	if err != nil {
-		return u, err
+		return nil, fmt.Errorf("failed to build announce URL: %w", err)
 	}
-	resp, err := http.Get(u)
-	if err != nil {
-		fmt.Println("error during get request: " + err.Error())
-		return "", err
-	}
-	defer resp.Body.Close()
 
-	b, err := io.ReadAll(resp.Body)
+	response, err := t.sendAnnounceRequest(announceURL)
 	if err != nil {
-		return "", err
+		return nil, fmt.Errorf("failed to send announce request: %w", err)
 	}
-	return parseTrackerResponse(b)
+
+	peers, err := t.extractPeersFromResponse(response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract peers from response: %w", err)
+	}
+
+	return peers, nil
 }
 
-func constructURL(trackerUrl string, infoHash [20]byte, peerId [20]byte, port int) (string, error) {
-
-	domain, err := url.Parse(trackerUrl)
+func (t *HTTPTracker) buildAnnounceURL(infoHash [20]byte, peerID [20]byte, port int) (string, error) {
+	base, err := url.Parse(t.baseUrl)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("invalid base URL: %w", err)
 	}
 
 	params := url.Values{
 		"info_hash":  []string{string(infoHash[:])},
-		"peer_id":    []string{common.PeerIdToString(peerId)},
+		"peer_id":    []string{common.PeerIdToString(peerID)},
 		"port":       []string{fmt.Sprintf("%d", port)},
 		"compact":    []string{"1"},
 		"uploaded":   []string{"0"},
 		"downloaded": []string{"0"},
 		"left":       []string{"0"},
 	}
-	domain.RawQuery = params.Encode()
-	fmt.Println("\nURL: " + domain.String() + "\n")
-	return domain.String(), nil
+	base.RawQuery = params.Encode()
+
+	return base.String(), nil
 }
 
-// it can return OriginalResponse type(original response type) or compactResponse
-func parseTrackerResponse(response []byte) (interface{}, error) {
-
-	fmt.Println(string(response[:50]))
-	decoder := bencode.NewDecoder(bufio.NewReader(bytes.NewReader(response)))
-	r := bufio.NewReader(bytes.NewReader(response))
-
-	start, err := r.Peek(50)
-
+func (t *HTTPTracker) sendAnnounceRequest(announceURL string) ([]byte, error) {
+	resp, err := http.Get(announceURL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("HTTP GET request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected HTTP status: %s", resp.Status)
 	}
 
-	compact := bytes.Contains(start, []byte(`5:peers`))
-
-	if compact {
-		// Compact format
-		resDict := make(map[string]interface{})
-		err := decoder.Decode(&resDict)
-
-		if err != nil {
-			return nil, err
-		}
-
-		return parseCompactFormat(resDict)
-
-	} else {
-		// Original format
-		originalResponse := new(OriginalResponse)
-		err := decoder.Decode(originalResponse)
-		return originalResponse.Peers, err
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
+
+	return body, nil
 }
 
-func parseCompactFormat(resDict map[string]interface{}) (CompactResponse, error) {
-
-	interval, ok := resDict["interval"].(int64)
-	if !ok {
-		return CompactResponse{}, fmt.Errorf("invalid or missing interval field in compact response")
+func (t *HTTPTracker) handleOriginalFormat(decoder *bencode.Decoder) ([]peer.Peer, error) {
+	var originalResp struct {
+		Peers []struct {
+			IP   string `bencode:"ip"`
+			Port int    `bencode:"port"`
+		} `bencode:"peers"`
 	}
-	compactPeers, ok := resDict["peers"].(string)
-	if !ok {
-		return CompactResponse{}, fmt.Errorf("invalid or missing peers field in compact response")
+	if err := decoder.Decode(&originalResp); err != nil {
+		return nil, fmt.Errorf("failed to decode original response: %w", err)
 	}
 
-	peers, err := parseCompactPeers(compactPeers)
-
-	return CompactResponse{
-		Peers:    peers,
-		Interval: int(interval),
-	}, err
+	peers := make([]peer.Peer, len(originalResp.Peers))
+	for i, p := range originalResp.Peers {
+		peers[i] = peer.Peer{IP: p.IP, Port: p.Port}
+	}
+	return peers, nil
 }
 
-func parseCompactPeers(compactPeers string) ([]peer.Peer, error) {
+func (t *HTTPTracker) isCompactResponse(response []byte) bool {
+	return bytes.Contains(response[:50], []byte(`5:peers`))
+}
+
+func (t *HTTPTracker) extractPeersFromResponse(response []byte) ([]peer.Peer, error) {
+	decoder := bencode.NewDecoder(bufio.NewReader(bytes.NewReader(response)))
+
+	if t.isCompactResponse(response) {
+		return t.handleCompactFormat(decoder)
+	}
+	return t.handleOriginalFormat(decoder)
+}
+
+func (t *HTTPTracker) handleCompactFormat(decoder *bencode.Decoder) ([]peer.Peer, error) {
+	var compactResp struct {
+		Peers string `bencode:"peers"`
+	}
+	if err := decoder.Decode(&compactResp); err != nil {
+		return nil, fmt.Errorf("failed to decode compact response: %w", err)
+	}
+	return t.parseCompactPeers(compactResp.Peers)
+}
+
+func (t *HTTPTracker) parseCompactPeers(compactPeers string) ([]peer.Peer, error) {
 	if len(compactPeers)%6 != 0 {
 		return nil, fmt.Errorf("invalid compact peers format")
 	}
