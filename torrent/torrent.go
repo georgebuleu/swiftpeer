@@ -1,124 +1,172 @@
 package torrent
 
 import (
-	"bytes"
 	"crypto/sha1"
 	"fmt"
+	"os"
 	"path/filepath"
-	"swiftpeer/client/bencode"
+	"swiftpeer/client/bitfield"
+	"swiftpeer/client/filewriter"
+	"swiftpeer/client/peer"
 	"swiftpeer/client/torrent/metadata"
 )
 
-const HashLen = sha1.Size
-
+// Torrent represents an active torrent download
 type Torrent struct {
-	Announce     string
-	AnnounceList [][]string
-	Name         string
+	Metadata     *metadata.Metadata
 	PieceLength  int
-	InfoHash     [HashLen]byte
-	PieceHashes  [][HashLen]byte
-	TotalLength  int
-	Files        []struct {
-		Length int
-		Path   string
-	}
-}
-type Info struct {
-	Pieces      string `bencode:"pieces"`
-	PieceLength int    `bencode:"piece length"`
-	Name        string `bencode:"name"`
-	Length      int    `bencode:"length"`
-	Files       []struct {
-		Length int      `bencode:"length"`
-		Path   []string `bencode:"path"`
-	} `bencode:"files"`
+	TotalLength  int64
+	NumPieces    int
+	Peers        peer.AddrSet
+	PiecesStatus bitfield.Bitfield // Bitfield of downloaded pieces
+	Name         string
+	InfoHash     [20]byte
+	PieceHashes  [][20]byte
+	PeerID       [20]byte
+	Files        []FileData
 }
 
-func NewTorrent() *Torrent {
-	m := metadata.NewMetadata()
+type FileData struct {
+	Length     int
+	Path       string
+	Writer     *filewriter.FileWriter
+	Downloaded int
+	Completed  bool
+	Start      int
+}
 
-	if m == nil {
-		fmt.Printf("torrent: Failed to load metadata\n")
-		return nil
-	}
-
-	infoHash, err := hashInfo(m)
+func NewTorrent(path string) (*Torrent, error) {
+	md, err := metadata.NewMetadataFromFile(path)
 	if err != nil {
-		fmt.Printf("torrent: %v", err)
-		return nil
-	}
-	pieceHashes, err := splitPieces(m)
-	if err != nil {
-		fmt.Printf("torrent: %v", err)
-		return nil
-	}
-	if len(m.Info.Files) == 0 && m.Info.Length == 0 {
-		fmt.Printf("torrent: no length or files\n")
+		return nil, fmt.Errorf("failed to load metadata: %v", err)
 	}
 
 	t := &Torrent{
-		Announce:     m.Announce,
-		AnnounceList: m.AnnounceList,
-		Name:         m.Info.Name,
-		PieceLength:  m.Info.PieceLength,
-		InfoHash:     infoHash,
-		PieceHashes:  pieceHashes,
+		Metadata:    md,
+		PieceLength: md.Info.PieceLength,
+		TotalLength: md.TotalLength(),
+		Peers:       make(peer.AddrSet),
+		Name:        md.Info.Name,
+		InfoHash:    md.InfoHash,
 	}
 
-	if m.Info.Length != 0 {
-		t.Files = append(t.Files, struct {
-			Length int
-			Path   string
-		}{
-			Length: m.Info.Length,
-			Path:   m.Info.Name,
-		})
-		t.TotalLength = m.Info.Length
-	} else {
-		for _, file := range m.Info.Files {
-			paths := append([]string{m.Info.Name}, file.Path...)
-			t.Files = append(t.Files, struct {
-				Length int
-				Path   string
-			}{
-				Length: file.Length,
-				Path:   filepath.Join(paths...),
-			})
-			t.TotalLength += file.Length
+	t.NumPieces = len(md.Info.Pieces) / sha1.Size
+	t.PiecesStatus = make([]byte, (t.NumPieces+7)/8)
+
+	// Initialize PieceHashes
+	t.PieceHashes = make([][20]byte, t.NumPieces)
+	for i := 0; i < t.NumPieces; i++ {
+		copy(t.PieceHashes[i][:], md.Info.Pieces[i*20:(i+1)*20])
+	}
+
+	// Initialize Files
+	t.Files = make([]FileData, len(md.Files()))
+	for i, file := range md.Files() {
+		t.Files[i] = FileData{
+			Length: file.Length,
+			Path:   filepath.Join(file.Path...),
+		}
+	}
+
+	return t, nil
+}
+
+// Existing methods...
+
+func (t *Torrent) ComputeBounds(index int) (int, int) {
+	begin := index * t.PieceLength
+	end := begin + t.PieceLength
+
+	if end > int(t.TotalLength) {
+		end = int(t.TotalLength)
+	}
+	return begin, end
+}
+
+func (t *Torrent) ComputeSize(index int) int {
+	begin, end := t.ComputeBounds(index)
+	return end - begin
+}
+
+func (t *Torrent) ComputeBoundsForFile(file FileData) (int, int) {
+	return file.Start, file.Start + file.Length
+}
+
+func (t *Torrent) HandlePiece(pieceIndex int, pieceData []byte) error {
+	begin, end := t.ComputeBounds(pieceIndex)
+
+	for i := range t.Files {
+		file := &t.Files[i]
+		if file.Completed {
+			continue
 		}
 
-	}
+		fileStart, fileEnd := t.ComputeBoundsForFile(*file)
+		if begin < fileEnd && end > fileStart {
+			overlapStart := max(begin, fileStart)
+			overlapEnd := min(end, fileEnd)
+			offset := overlapStart - fileStart
+			data := pieceData[overlapStart-begin : overlapEnd-begin]
+			if err := file.Writer.WriteAt(data, offset); err != nil {
+				return err
+			}
 
-	return t
+			file.Downloaded += len(data)
+			if file.Downloaded >= file.Length {
+				file.Completed = true
+				if err := file.Writer.Sync(); err != nil {
+					return err
+				}
+				if err := file.Writer.Close(); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }
 
-// hashes the info dict
-func hashInfo(m *metadata.Metadata) ([HashLen]byte, error) {
-	var buf bytes.Buffer
-	err := bencode.NewEncoder(&buf).Encode(m.Info)
-	//fmt.Printf("\ninfo: %s\n", buf.String()[:500])
-	if err != nil {
-		return [HashLen]byte{}, err
+func (t *Torrent) SetupFiles(basePath string) error {
+	currentPosition := 0
+	for i := range t.Files {
+		file := &t.Files[i]
+		fullPath := filepath.Join(basePath, file.Path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), os.ModePerm); err != nil {
+			return err
+		}
+		writer, err := filewriter.New(fullPath, file.Length)
+		if err != nil {
+			return err
+		}
+		file.Writer = writer
+		file.Start = currentPosition
+		currentPosition += file.Length
 	}
-
-	//fmt.Printf("\nhash: %v", hex.EncodeToString(sum[:]))
-
-	return sha1.Sum(buf.Bytes()), nil
+	return nil
 }
 
-func splitPieces(m *metadata.Metadata) ([][HashLen]byte, error) {
-	pieces := []byte(m.Info.Pieces)
+func (t *Torrent) FinalCleanup() error {
+	for i := range t.Files {
+		file := &t.Files[i]
+		if !file.Completed && file.Writer != nil {
+			file.Writer.Sync()
+			file.Writer.Close()
+		}
+	}
+	return nil
+}
 
-	if len(pieces)%sha1.Size != 0 {
-		return nil, fmt.Errorf("invalid pieces length")
+// Helper functions
+func max(a, b int) int {
+	if a > b {
+		return a
 	}
-	numPieces := len(pieces) / sha1.Size
-	hashes := make([][HashLen]byte, numPieces)
-	for i := 0; i < len(pieces); i += HashLen {
-		var hash [HashLen]byte
-		copy(hash[:], pieces[i:i+HashLen])
-		hashes[i/20] = hash
+	return b
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
-	return hashes, nil
+	return b
 }
