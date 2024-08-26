@@ -2,71 +2,101 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"swiftpeer/client/common"
 	"swiftpeer/client/peer"
-	"swiftpeer/client/statemanager"
+	"swiftpeer/client/peerconn"
 	"swiftpeer/client/torrent"
 	"swiftpeer/client/tracker"
+	"sync"
+	"time"
 )
 
-const Port int = 6881
+const port int = 6881
 
 func main() {
-	peers := make(peer.AddrSet)
-	outDir := "/home/george/test_licenta/"
-	tf := torrent.NewTorrent()
+
+	tf, err := torrent.NewTorrent("testdata/debian-12.5.0-amd64-netinst.iso.torrent")
 	if tf == nil {
-		fmt.Println("main: could not load torrent file")
+		fmt.Println(err)
 		return
 	}
+
 	peerId := common.GeneratePeerId()
 
-	err := tracker.GetTorrentData(tf.Announce, tf.AnnounceList, Port, tf.InfoHash, peerId, peers)
+	peers := make(peer.AddrSet)
+	err = tracker.GetTorrentData(tf.Metadata.Announce, tf.Metadata.AnnounceList, port, tf.Metadata.InfoHash, peerId, peers)
 	if err != nil {
 		fmt.Println(err)
 	}
-	fmt.Printf("len peers: %v\n\n", len(peers))
-	if len(peers) == 0 {
-		fmt.Println("main: no peers found")
+	for p, _ := range peers {
+		fmt.Println(p)
 	}
-
-	err = DownloadFile(tf, peers, peerId, outDir)
-
-	fmt.Println()
+	tf.Peers = peers
+	testPeerConnections(tf)
 
 }
 
-func DownloadFile(tf *torrent.Torrent, peers peer.AddrSet, peerId [20]byte, outDir string) error {
+func testPeerConnectionsSe(t *torrent.Torrent) {
+	peerID := common.GeneratePeerId()
+	successfulConnections := 0
 
-	t := &statemanager.Torrent{
-		Peers:       peers,
-		PeerID:      peerId,
-		InfoHash:    tf.InfoHash,
-		PieceHashes: tf.PieceHashes,
-		PieceLength: tf.PieceLength,
-		Length:      tf.TotalLength,
-		Name:        tf.Name,
-		Files:       make([]statemanager.FileData, len(tf.Files)),
-	}
-	for i, _ := range tf.Files {
-		t.Files[i].Path = tf.Files[i].Path
-		t.Files[i].Length = tf.Files[i].Length
-	}
+	totalPeers := len(t.Peers)
+	fmt.Printf("Attempting to connect to %d peers sequentially...\n", totalPeers)
 
-	for _, file := range t.Files {
-		outPath := filepath.Join(outDir, file.Path)
-		baseDir := filepath.Dir(outPath)
-		if _, err := os.Stat(baseDir); os.IsNotExist(err) {
-			if err := os.MkdirAll(baseDir, os.ModePerm); err != nil {
-				return fmt.Errorf("making output directory: %w", err)
-			}
+	for addr := range t.Peers {
+		fmt.Printf("Attempting to connect to peer %s\n", addr)
+
+		startTime := time.Now()
+		pc, err := peerconn.NewPeerConn(addr, t.Metadata.InfoHash, peerID)
+		duration := time.Since(startTime)
+
+		if err != nil {
+			fmt.Printf("Failed to connect to peer %s: %v (Time taken: %v)\n", addr, err, duration)
+		} else {
+			successfulConnections++
+			fmt.Printf("Successfully connected to peer %s (Time taken: %v)\n", addr, duration)
+			pc.Close()
 		}
+
+		// Optional: add a small delay between connection attempts
+		time.Sleep(100 * time.Millisecond)
 	}
 
-	if err := t.Download(outDir); err != nil {
-		return err
+	fmt.Printf("\nConnection test completed.\n")
+	fmt.Printf("Successful connections: %d out of %d\n", successfulConnections, totalPeers)
+}
+
+func testPeerConnections(t *torrent.Torrent) {
+	peerID := common.GeneratePeerId()
+	var wg sync.WaitGroup
+	successfulConnections := 0
+	var mu sync.Mutex
+
+	totalPeers := len(t.Peers)
+	fmt.Printf("Attempting to connect to %d peers...\n", totalPeers)
+
+	for addr := range t.Peers {
+		wg.Add(1)
+		go func(addr string) {
+			defer wg.Done()
+
+			pc, err := peerconn.NewPeerConn(addr, t.Metadata.InfoHash, peerID)
+			if err != nil {
+				fmt.Printf("Failed to connect to peer %s: %v\n", addr, err)
+				return
+			}
+			defer pc.Close()
+
+			mu.Lock()
+			successfulConnections++
+			mu.Unlock()
+
+			fmt.Printf("Successfully connected to peer %s\n", addr)
+		}(addr)
 	}
-	return nil
+
+	wg.Wait()
+
+	fmt.Printf("\nConnection test completed.\n")
+	fmt.Printf("Successful connections: %d out of %d\n", successfulConnections, totalPeers)
 }
