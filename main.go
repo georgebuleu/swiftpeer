@@ -12,16 +12,17 @@ func main() {
 
 	peerId := common.GeneratePeerId()
 
-	torrentFilePath := "testdata/nasa.torrent"
+	torrentFilePath := "testdata/spider-mantheanimatedseries_archive.torrent"
 	outDir := "/home/george/test_licenta/"
-	_, err := torrent.NewTorrent(torrentFilePath, peerId, Port, outDir)
+	t, err := torrent.NewTorrent(torrentFilePath, peerId, Port, outDir)
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	err = t.Download(outDir)
 	if err != nil {
 		fmt.Println(err)
 	}
-
-	//err = tf.Download(outDir)
-	//if err != nil {
-	//	fmt.Println(err)
-	//}
 
 }

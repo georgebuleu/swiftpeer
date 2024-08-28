@@ -3,8 +3,10 @@ package tracker
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"swiftpeer/client/bencode"
@@ -31,6 +33,8 @@ func (t *HTTPTracker) Announce(infoHash [20]byte, peerID [20]byte, port int) ([]
 	if err != nil {
 		return nil, fmt.Errorf("failed to send announce request: %w", err)
 	}
+
+	fmt.Println(string(response))
 
 	peers, err := t.extractPeersFromResponse(response)
 	if err != nil {
@@ -80,21 +84,13 @@ func (t *HTTPTracker) sendAnnounceRequest(announceURL string) ([]byte, error) {
 }
 
 func (t *HTTPTracker) handleOriginalFormat(decoder *bencode.Decoder) ([]peer.Peer, error) {
-	var originalResp struct {
-		Peers []struct {
-			IP   string `bencode:"ip"`
-			Port int    `bencode:"port"`
-		} `bencode:"peers"`
-	}
+	var originalResp OriginalResponse
 	if err := decoder.Decode(&originalResp); err != nil {
 		return nil, fmt.Errorf("failed to decode original response: %w", err)
 	}
 
-	peers := make([]peer.Peer, len(originalResp.Peers))
-	for i, p := range originalResp.Peers {
-		peers[i] = peer.Peer{IP: p.IP, Port: p.Port}
-	}
-	return peers, nil
+	return t.unmarshalPeersFromBytes(originalResp.Peers)
+
 }
 
 func (t *HTTPTracker) isCompactResponse(response []byte) bool {
@@ -111,26 +107,26 @@ func (t *HTTPTracker) extractPeersFromResponse(response []byte) ([]peer.Peer, er
 }
 
 func (t *HTTPTracker) handleCompactFormat(decoder *bencode.Decoder) ([]peer.Peer, error) {
-	var compactResp struct {
-		Peers string `bencode:"peers"`
-	}
-	if err := decoder.Decode(&compactResp); err != nil {
+	var compactResponse CompactResponse
+	if err := decoder.Decode(&compactResponse); err != nil {
 		return nil, fmt.Errorf("failed to decode compact response: %w", err)
 	}
-	return t.parseCompactPeers(compactResp.Peers)
+	return t.unmarshalPeersFromBytes(compactResponse.Peers)
 }
 
-func (t *HTTPTracker) parseCompactPeers(compactPeers string) ([]peer.Peer, error) {
-	if len(compactPeers)%6 != 0 {
-		return nil, fmt.Errorf("invalid compact peers format")
-	}
+func (t *HTTPTracker) unmarshalPeersFromBytes(data []byte) ([]peer.Peer, error) {
 	var peers []peer.Peer
+	const peerSize = 6 // 4 bytes for IP, 2 for Port
+	if len(data)%peerSize != 0 {
+		return nil, fmt.Errorf("malformed http tracker response, len(compactResponse) does not divide to 6 = 0")
+	}
 
-	for i := 0; i < len(compactPeers); i += 6 {
-		ip := fmt.Sprintf("%d.%d.%d.%d", compactPeers[i], compactPeers[i+1], compactPeers[i+2], compactPeers[i+3])
-		port := int(compactPeers[4])<<8 + int(compactPeers[5])
-		peers = append(peers, peer.Peer{IP: ip, Port: port})
+	for i := 0; i < len(data); i += peerSize {
+		addr := net.TCPAddr{IP: data[i : i+4], Port: int(binary.BigEndian.Uint16(data[i+4 : i+6]))}
+
+		peers = append(peers, peer.Peer{IP: addr.IP.String(), Port: addr.Port})
 	}
 
 	return peers, nil
+
 }

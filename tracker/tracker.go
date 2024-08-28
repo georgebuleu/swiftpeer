@@ -19,12 +19,12 @@ type OriginalResponse struct {
 	Complete       int
 	Incomplete     int
 	Event          string
-	Peers          []peer.Peer
+	Peers          []byte
 }
 
 type CompactResponse struct {
 	Interval int
-	Peers    []peer.Peer
+	Peers    []byte
 }
 
 type UdpResponse struct {
