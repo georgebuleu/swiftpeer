@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"swiftpeer/client/peer"
+	"sync"
 )
 
 type Tracker interface {
@@ -55,36 +56,55 @@ func GetTorrentData(announceUrl string, announceList [][]string, port int, infoH
 		for _, tier := range announceList {
 			urls = append(urls, tier...)
 		}
-		fmt.Printf("number of trackers: %v\n", len(urls))
+		fmt.Printf("[INFO] number of trackers: %v\n", len(urls))
 	} else {
 		urls = append(urls, announceUrl)
 	}
 
+	var wg sync.WaitGroup
+	peerChan := make(chan []peer.Peer, len(urls))
+
 	for _, trackerUrl := range urls {
-		tracker, err := NewTracker(trackerUrl)
-		if err != nil {
-			fmt.Printf("Error creating tracker for %s: %v\n", trackerUrl, err)
-			continue
-		}
+		wg.Add(1)
+		go func(url string) {
+			defer wg.Done()
+			tracker, err := NewTracker(url)
+			if err != nil {
+				fmt.Printf("[INFO] failed to create tracker instance for %s: %v\n", url, err)
+				return
+			}
 
-		peers, err := tracker.Announce(infoHash, peerId, port)
-		if err != nil {
-			fmt.Printf("Error announcing to %s: %v\n", trackerUrl, err)
-			continue
-		}
+			peers, err := tracker.Announce(infoHash, peerId, port)
+			if err != nil {
+				fmt.Printf("[INFO]Error announcing to %s: %v\n", url, err)
+				return
+			}
 
+			peerChan <- peers
+			fmt.Printf("[INFO] Successfully announced to %s and received %d peers\n", url, len(peers))
+		}(trackerUrl)
+	}
+
+	go func() {
+		wg.Wait()
+		close(peerChan)
+	}()
+
+	for peers := range peerChan {
 		for _, p := range peers {
 			address, err := p.FormatAddress()
 			if err != nil {
-				fmt.Printf("Error formatting address for peer from %s: %v\n", trackerUrl, err)
+				fmt.Printf("[ERROR] error formatting address for peer: %v\n", err)
 				continue
 			}
 			peerAddrs[address] = struct{}{}
 		}
-
-		fmt.Printf("Successfully announced to %s and received %d peers\n", trackerUrl, len(peers))
-		return nil // Successfully connected to a tracker
 	}
 
-	return fmt.Errorf("unable to connect to any tracker")
+	if len(peerAddrs) == 0 {
+		return fmt.Errorf("unable to get peers from any tracker")
+	}
+
+	fmt.Printf("[INFO] total peers: %d\n", len(peerAddrs))
+	return nil
 }
