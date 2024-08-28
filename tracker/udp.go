@@ -16,7 +16,7 @@ const (
 	protocolID           = 0x41727101980
 	connPacketSize       = 16
 	announceReqSize      = 98
-	maxRetries           = 1
+	maxRetries           = 3
 	connIDExpirationTime = 60 * time.Second
 )
 
@@ -60,7 +60,7 @@ func (t *UdpTracker) ensureConnection() error {
 func (t *UdpTracker) connect() error {
 	udpAddr, err := net.ResolveUDPAddr("udp", t.url.Host)
 	if err != nil {
-		return fmt.Errorf("couldn't resolve UDP address: %w", err)
+		return fmt.Errorf("[ERROR]couldn't resolve UDP address: %w", err)
 	}
 
 	conn, err := net.DialUDP("udp", nil, udpAddr)
@@ -79,8 +79,8 @@ func (t *UdpTracker) connect() error {
 	req := t.buildConnectRequest(transactionID)
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
-		t.conn.SetDeadline(time.Now().Add(15 * time.Second * (1 << attempt)))
-
+		t.conn.SetDeadline(time.Now().Add(2 * time.Second * (1 << attempt)))
+		fmt.Printf("[INFO] attempt %v to connect %v failed, retrying...\n", attempt, udpAddr)
 		if err := t.sendAndReceive(req, connPacketSize, func(resp []byte) error {
 			return t.handleConnectResponse(resp, transactionID)
 		}); err == nil {
@@ -89,7 +89,7 @@ func (t *UdpTracker) connect() error {
 		}
 	}
 
-	return fmt.Errorf("failed to connect after %d attempts", maxRetries+1)
+	return fmt.Errorf("[INFO]failed to connect after %d attempts", maxRetries+1)
 }
 
 func (t *UdpTracker) buildConnectRequest(transactionID uint32) []byte {
@@ -166,7 +166,6 @@ func (t *UdpTracker) handleAnnounceResponse(resp []byte, transactionID uint32, r
 
 	response.Interval = int(binary.BigEndian.Uint32(resp[8:12]))
 	response.Leechers = int(binary.BigEndian.Uint32(resp[12:16]))
-	//
 
 	response.Peers = t.parsePeers(resp[20:])
 	return nil
