@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"fmt"
+	"github.com/schollz/progressbar/v3"
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 	"swiftpeer/client/filewriter"
 	"swiftpeer/client/message"
 	"swiftpeer/client/peer"
@@ -291,9 +291,16 @@ func (t *Torrent) Download(path string) error {
 		go t.startTask(p, piecesQueue, completed)
 
 	}
-	log.Printf("pieces in compeleted %v out of %v\n", len(completed), len(t.PieceHashes))
+	//log.Printf("pieces in compeleted %v out of %v\n", len(completed), len(t.PieceHashes))
+
+	bar := progressbar.DefaultBytes(
+		int64(t.TotalLength),
+		"Downloading",
+	)
 
 	finishedPieces := 0
+	startTime := time.Now()
+	totalDownloaded := int64(0)
 
 	timeout := time.After(20 * time.Second)
 
@@ -306,9 +313,21 @@ func (t *Torrent) Download(path string) error {
 				return err
 			}
 			finishedPieces++
-			log.Printf("Downloaded piece #%d out of #%d\n", finishedPieces, len(t.PieceHashes))
+			pieceSize := int64(len(piece.buf))
+			totalDownloaded += pieceSize
+
+			elapsedTime := time.Since(startTime).Seconds()
+			speed := float64(totalDownloaded) / elapsedTime / 1024 / 1024 // MB/s
+
+			fmt.Printf("\rDownload speed: %.2f MB/s", speed)
+
+			//log.Printf("Downloaded piece #%d out of #%d\n", finishedPieces, len(t.PieceHashes))
 			timeout = time.After(30 * time.Second) // Reset timeout after each successful piece handling
-			log.Printf("(%0.2f%%) Downloaded piece #%d from %d peers\n", float64(finishedPieces)/float64(len(t.PieceHashes))*100, piece.index, runtime.NumGoroutine()-1)
+			//log.Printf("(%0.2f%%) Downloaded piece #%d from %d peers\n", float64(finishedPieces)/float64(len(t.PieceHashes))*100, piece.index, runtime.NumGoroutine()-1)
+
+			if err := bar.Add64(pieceSize); err != nil {
+				fmt.Printf("Error updating progress bar: %v\n", err)
+			}
 
 		case <-timeout:
 			fmt.Printf("Timeout: No pieces completed within the last 30 seconds")
