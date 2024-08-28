@@ -83,7 +83,7 @@ func NewTorrent(pathToTorrentFile string, peerId [20]byte, port int, outDir stri
 		return nil, err
 	}
 	//TODO:remove this print
-	for p, _ := range peers {
+	for p := range peers {
 		fmt.Println(p)
 	}
 
@@ -298,7 +298,7 @@ func (t *Torrent) Download(path string) error {
 		piecesQueue <- &pieceTask{idx, hash, length}
 	}
 
-	for p, _ := range t.Peers {
+	for p := range t.Peers {
 		go t.startTask(p, piecesQueue, completed)
 
 	}
