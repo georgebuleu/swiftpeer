@@ -8,17 +8,21 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"swiftpeer/client/filewriter"
 	"swiftpeer/client/message"
 	"swiftpeer/client/peer"
 	"swiftpeer/client/peerconn"
 	"swiftpeer/client/torrent/metadata"
 	"swiftpeer/client/tracker"
+	"sync/atomic"
 	"time"
 )
 
 const maxRequest = 5
 const maxBlockSize = 2 << 13
+
+var activeConns int32
 
 type FileData struct {
 	Length     int
@@ -82,6 +86,8 @@ func NewTorrent(pathToTorrentFile string, peerId [20]byte, port int, outDir stri
 	for p, _ := range peers {
 		fmt.Println(p)
 	}
+
+	atomic.StoreInt32(&activeConns, int32(len(peers)))
 
 	t := &Torrent{
 		Peers:       peers,
@@ -169,7 +175,7 @@ func prepareDownload(pc *peerconn.PeerConn, task *pieceTask) ([]byte, error) {
 		data:     make([]byte, task.length),
 	}
 
-	pc.Conn.SetDeadline(time.Now().Add(25 * time.Second))
+	pc.Conn.SetDeadline(time.Now().Add(10 * time.Second))
 	defer pc.Conn.SetDeadline(time.Time{})
 
 	for state.downloaded < task.length {
@@ -193,6 +199,7 @@ func prepareDownload(pc *peerconn.PeerConn, task *pieceTask) ([]byte, error) {
 
 		err := state.handleMessage()
 		if err != nil {
+			atomic.AddInt32(&activeConns, -1)
 			fmt.Println("\nerror while handling message in preparing download")
 			return nil, err
 		}
@@ -205,22 +212,25 @@ func (t *Torrent) startTask(peer string, pieceQueue chan *pieceTask, completed c
 	pc, err := peerconn.NewPeerConn(peer, t.InfoHash)
 
 	if err != nil {
-		fmt.Printf("Failed to complete the handshake with %v. Disconnecting\n", peer)
+		fmt.Printf("[INFO] failed to complete the handshake with %v. Disconnecting\n", peer)
+		atomic.AddInt32(&activeConns, -1)
 		return
 	}
 
 	defer pc.Conn.Close()
 
-	fmt.Printf("Completed the handshake with %v.\n", peer)
+	fmt.Printf("[INFO] Completed the handshake with %v.\n", peer)
 
 	err = pc.SendUnchoke()
 	if err != nil {
-		fmt.Printf("Failed to send unchoke to %v: %v\n", peer, err)
+		fmt.Printf("[INFO] failed to send unchoke to %v: %v\n", peer, err)
+		atomic.AddInt32(&activeConns, -1)
 	}
 
 	err = pc.SendInterested()
 	if err != nil {
-		fmt.Printf("Failed to send interested to %v: %v\n", peer, err)
+		fmt.Printf("[INFO] failed to send interested to %v: %v\n", peer, err)
+		atomic.AddInt32(&activeConns, -1)
 	}
 
 	for pieceTask := range pieceQueue {
@@ -233,6 +243,7 @@ func (t *Torrent) startTask(peer string, pieceQueue chan *pieceTask, completed c
 		if err != nil {
 			fmt.Printf("\nError downloading piece %d from %v:\n", pieceTask.index, peer)
 			fmt.Println(err)
+			//atomic.AddInt32(&activeConns, -1)
 			pieceQueue <- pieceTask
 			return
 		}
@@ -293,9 +304,26 @@ func (t *Torrent) Download(path string) error {
 	}
 	//log.Printf("pieces in compeleted %v out of %v\n", len(completed), len(t.PieceHashes))
 
-	bar := progressbar.DefaultBytes(
+	bar := progressbar.NewOptions64(
 		int64(t.TotalLength),
-		"Downloading",
+		progressbar.OptionSetDescription("Downloading"),
+		progressbar.OptionSetWriter(os.Stdout),
+		progressbar.OptionShowBytes(true),
+		progressbar.OptionSetWidth(10),
+		progressbar.OptionThrottle(65*time.Millisecond),
+		progressbar.OptionShowCount(),
+		progressbar.OptionOnCompletion(func() {
+			fmt.Fprint(os.Stdout, "\n")
+		}),
+		progressbar.OptionSpinnerType(14),
+		progressbar.OptionFullWidth(),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "=",
+			SaucerHead:    ">",
+			SaucerPadding: " ",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
 	)
 
 	finishedPieces := 0
@@ -315,11 +343,12 @@ func (t *Torrent) Download(path string) error {
 			finishedPieces++
 			pieceSize := int64(len(piece.buf))
 			totalDownloaded += pieceSize
+			activeConnsCount := atomic.LoadInt32(&activeConns)
 
 			elapsedTime := time.Since(startTime).Seconds()
 			speed := float64(totalDownloaded) / elapsedTime / 1024 / 1024 // MB/s
 
-			fmt.Printf("\rDownload speed: %.2f MB/s", speed)
+			bar.Describe(fmt.Sprintf("Downloading (%.2f MB/s) - PeersAtomic: %d - PeersG: %d ", speed, activeConnsCount, runtime.NumGoroutine()-1))
 
 			//log.Printf("Downloaded piece #%d out of #%d\n", finishedPieces, len(t.PieceHashes))
 			timeout = time.After(30 * time.Second) // Reset timeout after each successful piece handling
