@@ -12,6 +12,7 @@ import (
 	"swiftpeer/client/bencode"
 	"swiftpeer/client/common"
 	"swiftpeer/client/peer"
+	"time"
 )
 
 type HTTPTracker struct {
@@ -65,7 +66,10 @@ func (t *HTTPTracker) buildAnnounceURL(infoHash [20]byte, peerID [20]byte, port 
 }
 
 func (t *HTTPTracker) sendAnnounceRequest(announceURL string) ([]byte, error) {
-	resp, err := http.Get(announceURL)
+	client := &http.Client{
+		Timeout: 4 * time.Second,
+	}
+	resp, err := client.Get(announceURL)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP GET request failed: %w", err)
 	}
